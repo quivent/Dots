@@ -9,7 +9,7 @@ Run `make` to build and install the CLI, then `dots setup` to see the numbered s
 | `dots update` | Update this CLI from the public GitHub repository |
 | `dots auth` | Reuse an existing ChatGPT login, or start first-party browser sign-in when missing; then verify Dot account access |
 | `dots preflight` | Check local readiness and current Dot account access without signing in |
-| `dots setup steps` | List the individual setup commands without running them |
+| `dots installation` | List the individual setup commands without running them |
 | `dots setup` | Show the numbered setup commands; no actions run |
 | `dots setup run` | Run update → preflight → auth → setup onboard in order |
 | `dots setup onboard` | Open Dot onboarding in ChatGPT |
@@ -28,7 +28,7 @@ The main screen uses three colored command groups: Setup, Dots, and Manage. `dot
 
 The setup plan starts with `dots update`, followed by `dots preflight`, `dots auth`, and `dots setup onboard`. Updates check the available version first and install only a newer CLI, preserving satisfied dependencies. Installation progress stays concise; errors show a short message and the path to a private log. Raw installer output is never printed. Updates install the latest public `quivent/Dots` main branch into the Python environment running this CLI. The updater reuses uv or pip and runs one install command, without creating a separate installer environment or upgrading pip. Only installations with neither installer bootstrap pip once. Satisfied dependencies are retained; uv targets only the CLI for upgrade. Each runner step starts a fresh CLI process so it uses the updated code.
 
-`dots setup` and `dots setup steps` show the same plan; both accept `--json` and perform no setup actions.
+`dots setup` and `dots installation` show the same plan; both accept `--json` and perform no setup actions.
 
 The setup plan and runner share one command list. The runner prints each command before executing it and stops on failure, naming the command to retry. Every step remains directly runnable; no saved completion flags or pipeline state block other commands. The final step requests onboarding navigation and does not claim onboarding is complete.
 

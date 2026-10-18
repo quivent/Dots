@@ -378,9 +378,11 @@ def main(argv=None):
                             ('guide', 'Open the official onboarding instructions')]:
         sub.add_parser(name, help=help_text)
     sub.add_parser('update', help='Update this CLI from quivent/Dots on GitHub (main)')
-    setup = sub.add_parser('setup', help='Start here; steps lists the plan, run executes it')
-    setup.add_argument('setup_action', nargs='?', choices=['steps', 'run', 'onboard'],
-                       help='steps: list setup commands; run: execute the sequence; onboard: launch Dot onboarding. Omit to list steps.')
+    installation = sub.add_parser('installation', help='List the individual installation and setup commands')
+    installation.add_argument('--json', action='store_true', help='Print the command list as JSON')
+    setup = sub.add_parser('setup', help='Start here; show setup steps or run them in order')
+    setup.add_argument('setup_action', nargs='?', choices=['run', 'onboard'],
+                       help='run: execute the sequence; onboard: launch Dot onboarding. Omit to list steps.')
     setup.add_argument('--json', action='store_true', help='Print the step list or onboarding result as JSON; unavailable with run')
     preflight = sub.add_parser('preflight', help='Check local readiness and current Dot account access without signing in')
     preflight.add_argument('--json', action='store_true', help='Print preflight results as JSON')
@@ -413,14 +415,14 @@ def main(argv=None):
                 (show_preflight if args.command == 'preflight' else show_doctor)(result)
             failed = result.get('error') or result['connection'] == 'error' or any(item['state'] == 'error' for item in result.get('diagnostics', []))
             return 1 if failed else 0
-        if args.command == 'setup':
+        if args.command in ('setup', 'installation'):
             from .workflow import SETUP_STEPS, run_setup
             from .ui import show_setup
-            if args.setup_action == 'run':
+            if getattr(args, 'setup_action', None) == 'run':
                 if args.json:
                     raise ValueError('setup run is interactive. Use dots setup --json to inspect its steps.')
                 return run_setup()
-            if args.setup_action == 'onboard':
+            if getattr(args, 'setup_action', None) == 'onboard':
                 result = launcher.launch('setup')
                 if args.json:
                     print(json.dumps(result, indent=2))

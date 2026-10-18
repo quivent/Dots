@@ -51,10 +51,10 @@ class MenuTests(unittest.TestCase):
     @patch('dots_cli.workflow.run_setup')
     @patch('dots_cli.cli.Launcher')
     @patch('dots_cli.cloud.DotClient')
-    def test_explicit_setup_steps_matches_setup_without_executing(self, client, launcher, run):
+    def test_installation_matches_setup_without_executing(self, client, launcher, run):
         for suffix in ([], ['--json']):
             with self.subTest(suffix=suffix):
-                code, output = self.invoke(['setup', 'steps', *suffix])
+                code, output = self.invoke(['installation', *suffix])
                 default_code, default_output = self.invoke(['setup', *suffix])
                 self.assertEqual(code, 0)
                 self.assertEqual((code, output), (default_code, default_output))
