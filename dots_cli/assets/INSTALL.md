@@ -21,10 +21,10 @@ If Windows has `python` rather than the `py` launcher, use `python -m pip instal
 Or, if you downloaded the wheel:
 
 ```sh
-python3 -m pip install ./dots_cli-0.2.7-py3-none-any.whl
+python3 -m pip install ./dots_cli-0.2.8-py3-none-any.whl
 ```
 
-On Windows, use `py -m pip install .\dots_cli-0.2.7-py3-none-any.whl` for the wheel.
+On Windows, use `py -m pip install .\dots_cli-0.2.8-py3-none-any.whl` for the wheel.
 
 After installation, run `dots` for the command menu or `dots setup` for the numbered setup plan. Use `dots setup run` to execute the plan. Use `dots --help` for other commands. Pip installs the package, formatting and OS credential-store dependencies, and the `dots` console command.
 A virtual environment is not an application requirement, and there is no separate venv setup step.
@@ -71,7 +71,7 @@ Update the installed CLI from the public `quivent/Dots` main branch:
 dots update
 ```
 
-The command checks for a newer version before installing anything and preserves satisfied dependencies. This works with pip and pipx installations. The CLI manages a temporary installer automatically and removes it afterward. Setup starts with this update, then preflight, authentication, and onboarding.
+The command checks for a newer version before installing anything and preserves satisfied dependencies. This works with pip and pipx installations. It reuses uv or pip for one install command; only installations with neither bootstrap pip once. It creates no separate installer environment. Raw installer output is never printed, including on failure; detailed errors go to a private log whose path is shown. Setup starts with this update, then preflight, authentication, and onboarding.
 
 From an updated source checkout, `make` also rebuilds and installs the CLI.
 

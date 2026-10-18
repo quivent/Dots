@@ -1,13 +1,14 @@
-"""Check for a newer CLI before updating this installation."""
+"""Check once, then update using an installer already on this computer."""
+from importlib.util import find_spec
 from pathlib import Path
 import os
 import re
+import shutil
 import subprocess
 import sys
-from tempfile import TemporaryDirectory
+from tempfile import mkstemp
 from urllib.error import URLError
 from urllib.request import Request, urlopen
-import venv
 
 from . import __version__
 
@@ -29,9 +30,55 @@ def version_key(version):
     return tuple(int(part) for part in version.split('.'))
 
 
+def run_quiet(command, environment, timeout=300):
+    return subprocess.run(command, cwd=Path(sys.executable).parent, env=environment,
+                          check=True, capture_output=True, encoding='utf-8', errors='replace', timeout=timeout)
+
+
+def install(environment):
+    uv = shutil.which('uv')
+    if uv:
+        command = [uv, 'pip', 'install', '--quiet', '--python', sys.executable,
+                   '--upgrade-package', 'dots-cli']
+        if sys.prefix == sys.base_prefix:
+            command.append('--system')
+        run_quiet([*command, SOURCE], environment)
+        return
+    if find_spec('pip') is None:
+        # Only for installations with neither uv nor pip. This is a one-time
+        # bootstrap in the existing interpreter, not a new environment per update.
+        run_quiet([sys.executable, '-m', 'ensurepip', '--upgrade'], environment, timeout=120)
+    run_quiet([sys.executable, '-m', 'pip', '--disable-pip-version-check',
+               'install', '--quiet', '--upgrade', SOURCE], environment)
+
+
+def report_failure(console, error):
+    """Never forward installer output to the terminal, including on errors."""
+    if isinstance(error, subprocess.TimeoutExpired):
+        message = 'Update timed out. Check your connection and retry dots update.'
+    elif isinstance(error, (URLError, ConnectionError)):
+        message = 'Could not check for updates. Check your connection and retry dots update.'
+    elif isinstance(error, subprocess.CalledProcessError):
+        message = 'Update could not be installed. Details are saved in the log below.'
+    else:
+        message = 'Update could not be completed. Details are saved in the log below.'
+    console.print(message, style='yellow')
+    try:
+        descriptor, filename = mkstemp(prefix='dots-update-', suffix='.log')
+        with os.fdopen(descriptor, 'w', encoding='utf-8') as log:
+            log.write(str(error) + '\n')
+            for detail in (getattr(error, 'stdout', None), getattr(error, 'stderr', None)):
+                if detail:
+                    log.write(detail.decode('utf-8', errors='replace') if isinstance(detail, bytes) else detail)
+                    log.write('\n')
+        console.print('Update log: ' + filename, markup=False)
+    except OSError:
+        console.print('Could not save the update log.', style='dim')
+
+
 def update():
     from .ui import console
-    # Shell import paths can expose unrelated source distributions to pip.
+    # Shell import paths can expose unrelated source distributions to installers.
     environment = {key: value for key, value in os.environ.items()
                    if key not in ('PYTHONPATH', 'PYTHONHOME')}
     try:
@@ -40,33 +87,14 @@ def update():
         if version_key(latest) <= version_key(__version__):
             console.print('Dots CLI ' + __version__ + ' is up to date.', style='green')
             return 0
-        console.print('Updating Dots CLI ' + __version__ + ' → ' + latest + '…')
-        # pipx environments may have no pip. Keep the disposable installer private
-        # and target this interpreter; leave satisfied dependencies alone.
-        with console.status('Installing Dots CLI…'), TemporaryDirectory(prefix='dots-update-') as directory:
-            venv.EnvBuilder(with_pip=True).create(directory)
-            python = Path(directory) / ('Scripts/python.exe' if sys.platform == 'win32' else 'bin/python')
-            subprocess.run([str(python), '-m', 'pip', 'install', '--quiet', 'pip>=22.3'],
-                           check=True, capture_output=True, text=True, timeout=180, env=environment)
-            subprocess.run([str(python), '-m', 'pip', '--python', sys.executable,
-                            'install', '--upgrade', '--quiet', SOURCE],
-                           check=True, capture_output=True, text=True, timeout=300, env=environment)
-        result = subprocess.run([sys.executable, '-m', 'dots_cli', '--version'],
-                                cwd=Path(sys.executable).parent, check=True,
-                                capture_output=True, text=True, timeout=30, env=environment)
-        installed = result.stdout.strip().removeprefix('dots ')
-        if version_key(installed) < version_key(latest):
-            raise ValueError('The installed version did not match the requested update.')
-    except (OSError, URLError, ValueError, subprocess.SubprocessError) as error:
-        console.print('Dots CLI update failed.', style='yellow')
-        if isinstance(error, subprocess.CalledProcessError):
-            # Keep failures actionable without flooding the terminal with build logs.
-            detail = (error.stderr or error.stdout or str(error)).strip()
-            console.print('\n'.join(detail.splitlines()[-12:]), markup=False)
-        elif isinstance(error, subprocess.TimeoutExpired):
-            console.print('The update timed out. Check your connection and retry dots update.')
-        else:
-            console.print(str(error), markup=False)
+        with console.status('Updating Dots CLI ' + __version__ + ' → ' + latest + '…'):
+            install(environment)
+            result = run_quiet([sys.executable, '-m', 'dots_cli', '--version'], environment, timeout=30)
+            installed = result.stdout.strip().removeprefix('dots ')
+            if version_key(installed) < version_key(latest):
+                raise ValueError('The installed version did not match the requested update.')
+    except (OSError, ValueError, subprocess.SubprocessError) as error:
+        report_failure(console, error)
         return 1
     console.print('Dots CLI updated to ' + installed + '.', style='green')
     return 0
