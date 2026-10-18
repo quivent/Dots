@@ -2,14 +2,15 @@
 
 Run `make` to build and install the CLI, then `dots setup` to see the numbered setup commands. Use `dots setup run` to execute them. Windows: `py -m pip install .`. Linux: `make` also works. Requires Python 3.10+. See [INSTALL.md](INSTALL.md).
 
-## Sign in, check, or set up
+## Set up
 
 | Command | Action |
 |---|---|
+| `dots update` | Update this CLI from the public GitHub repository |
 | `dots auth` | Reuse an existing ChatGPT login, or start first-party browser sign-in when missing; then verify Dot account access |
 | `dots preflight` | Check local readiness and current Dot account access without signing in |
 | `dots setup` | Show the numbered setup commands; no actions run |
-| `dots setup run` | Run preflight → auth → setup onboard in order |
+| `dots setup run` | Run update → preflight → auth → setup onboard in order |
 | `dots setup onboard` | Open Dot onboarding in ChatGPT |
 | `dots doctor` | Full troubleshooting: local state, account access, tools, assets, and private-note permissions |
 | `dots serve` | Open the local guide independently of cloud access |
@@ -23,6 +24,8 @@ When no reusable login exists, run `dots auth`. It starts the first-party `codex
 App launch, local tools, authentication, connection checks, creation, and room repair are independent commands. A failed connection check does not block `dots app`, `dots setup`, `dots doctor`, or `dots serve`.
 
 The main screen uses three colored command groups: Setup, Dots, and Manage. `dots` and `dots --help` show the same indented command tree; `dots COMMAND --help` lists options.
+
+The setup plan starts with `dots update`, followed by `dots preflight`, `dots auth`, and `dots setup onboard`. Updates install the latest public `quivent/Dots` main branch into the Python environment running this CLI. An automatic temporary installer supports pip and pipx installations; no manual environment setup is needed. Each runner step starts a fresh CLI process so it uses the updated code.
 
 The setup plan and runner share one command list. The runner prints each command before executing it and stops on failure, naming the command to retry. Every step remains directly runnable; no saved completion flags or pipeline state block other commands. The final step requests onboarding navigation and does not claim onboarding is complete.
 

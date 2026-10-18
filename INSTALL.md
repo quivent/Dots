@@ -21,10 +21,10 @@ If Windows has `python` rather than the `py` launcher, use `python -m pip instal
 Or, if you downloaded the wheel:
 
 ```sh
-python3 -m pip install ./dots_cli-0.2.5-py3-none-any.whl
+python3 -m pip install ./dots_cli-0.2.6-py3-none-any.whl
 ```
 
-On Windows, use `py -m pip install .\dots_cli-0.2.5-py3-none-any.whl` for the wheel.
+On Windows, use `py -m pip install .\dots_cli-0.2.6-py3-none-any.whl` for the wheel.
 
 After installation, run `dots` for the command menu or `dots setup` for the numbered setup plan. Use `dots setup run` to execute the plan. Use `dots --help` for other commands. Pip installs the package, formatting and OS credential-store dependencies, and the `dots` console command.
 A virtual environment is not an application requirement, and there is no separate venv setup step.
@@ -45,10 +45,11 @@ If you are already signed into ChatGPT/Codex on this computer, the CLI reuses th
 
 | Command | Action |
 |---|---|
+| `dots update` | Update this CLI from the public GitHub repository |
 | `dots auth` | Sign in when needed, then verify Dot account access |
 | `dots preflight` | Check local readiness and current Dot account access; no login flow |
 | `dots setup` | Show the numbered setup commands without running them |
-| `dots setup run` | Run preflight → auth → setup onboard |
+| `dots setup run` | Run update → preflight → auth → setup onboard |
 | `dots setup onboard` | Open guided Dot onboarding in ChatGPT |
 | `dots create NAME` | Create a Dot through the internal account API |
 | `dots doctor` | Full read-only troubleshooting report |
@@ -64,11 +65,15 @@ An installed release uses `~/Dots` as its workspace. `dots setup onboard`, `dots
 
 ## Upgrade or remove
 
-From updated source:
+Update the installed CLI from the public `quivent/Dots` main branch:
 
 ```sh
-python3 -m pip install --upgrade .
+dots update
 ```
+
+This works with pip and pipx installations. The CLI manages a temporary installer automatically and removes it afterward. Setup starts with this update, then preflight, authentication, and onboarding.
+
+From an updated source checkout, `make` also rebuilds and installs the CLI.
 
 Or install a newer shared wheel with `python3 -m pip install --upgrade /path/to/new.whl`.
 

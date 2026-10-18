@@ -377,6 +377,7 @@ def main(argv=None):
                             ('web', 'Open ChatGPT in a browser'),
                             ('guide', 'Open the official onboarding instructions')]:
         sub.add_parser(name, help=help_text)
+    sub.add_parser('update', help='Update this CLI from quivent/Dots on GitHub (main)')
     setup = sub.add_parser('setup', help='Show setup steps; run executes them, onboard opens ChatGPT onboarding')
     setup.add_argument('setup_action', nargs='?', choices=['run', 'onboard'],
                        help='run: execute the setup sequence; onboard: launch Dot onboarding. Omit to list steps.')
@@ -400,6 +401,9 @@ def main(argv=None):
         if not args.command:
             parser.print_help()
             return 0
+        if args.command == 'update':
+            from .update import update
+            return update()
         if args.command in ('preflight', 'doctor'):
             from . import diagnostics
             result = diagnostics.preflight(launcher) if args.command == 'preflight' else diagnostics.doctor(launcher)
@@ -415,7 +419,7 @@ def main(argv=None):
             if args.setup_action == 'run':
                 if args.json:
                     raise ValueError('setup run is interactive. Use dots setup --json to inspect its steps.')
-                return run_setup(main)
+                return run_setup()
             if args.setup_action == 'onboard':
                 result = launcher.launch('setup')
                 if args.json:

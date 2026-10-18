@@ -2,7 +2,7 @@
 
 On macOS or Linux, from this checkout run `make` to build and install the CLI, then `dots setup` to see the setup steps. Run `dots setup run` to execute them. Without make, use `python3 -m pip install .` (Windows: `py -m pip install .`). This installs the `dots` console command and its dependencies. Pipx is an optional isolated alternative. See [INSTALL.md](INSTALL.md) for macOS prerequisites, wheel installation, upgrades, and removal. Run `dots --help` for all commands.
 
-Run `dots` for the grouped command menu. `dots setup` lists setup commands; `dots setup run` runs them in order.
+Run `dots` for the grouped command menu. `dots setup` lists update → preflight → auth → onboarding; `dots setup run` runs them in order.
 
 Optional local setup desk: run `dots serve`. It opens `http://127.0.0.1:8768/setup.html` with launcher actions, live local checks, and trial-note saving. You can also open [setup.html](setup.html) directly for instructions and copy buttons.
 
