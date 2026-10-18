@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dots-cli"
+version = "0.2.0"
+description = "Account management and local setup tools for ChatGPT Dots"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = ["rich-argparse>=1.6,<2", "keyring>=25,<26"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Operating System :: MacOS",
+  "Operating System :: Microsoft :: Windows",
+  "Operating System :: POSIX :: Linux",
+  "Environment :: Console",
+]
+
+[project.scripts]
+dots = "dots_cli.cli:main"
+
+[tool.setuptools]
+packages = ["dots_cli", "dots_cli.assets"]
+
+[tool.setuptools.package-data]
+"dots_cli.assets" = ["*.html", "*.md"]

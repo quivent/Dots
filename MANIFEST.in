@@ -1,0 +1,4 @@
+include Makefile
+include INSTALL.md LAUNCHER.md FIRST-MESSAGE.md TRIALS.md
+include index.html setup.html
+include dots_launcher.py dots_setup_server.py

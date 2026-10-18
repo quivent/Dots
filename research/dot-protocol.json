@@ -1,0 +1,121 @@
+{
+  "inspected_at": "2026-10-17",
+  "app_version": "26.1013.40934",
+  "artifact": "Cached ChatGPT update app.asar; source inspection only, no session stores inspected",
+  "conclusion": "The graphical onboarding is a client of internal backend endpoints. A CLI could in principle issue equivalent authorized requests; an authenticated end-to-end CLI creation has not been demonstrated.",
+  "confirmed_from_code": {
+    "creation": {
+      "method": "POST",
+      "relative_path": "/tbo",
+      "body_fields": {
+        "display_name": "chosen name",
+        "avatar": "chosen built-in appearance (or separate pet manifest fields)",
+        "create_thread": true,
+        "create_additional": "false for first Dot; true for an additional Dot",
+        "should_initialize": true
+      },
+      "response_checked": [
+        "id",
+        "root_thread_id",
+        "messaging_room_id"
+      ],
+      "source": "cloud-aeon-onboarding-2e6570831113.js"
+    },
+    "room_fallback": {
+      "method": "POST",
+      "relative_path": "/tbo/{tbo_id}/messaging-room",
+      "condition": "Creation response has no messaging_room_id"
+    },
+    "initialization": {
+      "method": "POST",
+      "relative_path": "/tbo/{tbo_id}/onboarding/initialize",
+      "behavior": "Initial greeting or initial-prompt admission; checks acknowledgement matches requested thread/message IDs",
+      "source": "app-initial-90eb42395b7d.js"
+    },
+    "catalog": {
+      "method": "GET",
+      "relative_path": "/tbo",
+      "query_fields": [
+        "cursor",
+        "limit=25",
+        "include_room_preview=false"
+      ],
+      "response_fields": [
+        "items",
+        "cursor"
+      ],
+      "source": "app-initial-90eb42395b7d.js"
+    },
+    "primary": {
+      "read": "GET /tbo/primary",
+      "select": "PUT /tbo/primary with tbo_id",
+      "source": "app-initial-90eb42395b7d.js"
+    },
+    "activity": {
+      "method": "GET",
+      "relative_path": "/tbo/{tbo_id}/activity",
+      "source": "side-panel-ca01b35697cf.js"
+    },
+    "desktop_auth": {
+      "flow": "Native host requests authentication from its app-server connection using getAuthToken; can refresh on a 401, validates expected account, and attaches authenticated request headers. Workspace routing and feature eligibility checks also apply.",
+      "source": "main-CLu1A25j.js"
+    },
+    "entry_links": {
+      "desktop": "codex://dots",
+      "desktop_evidence": "First-party launch helper maps target=dots to codex://dots",
+      "web_routes": [
+        "/dots",
+        "/dots/start",
+        "/dots/home",
+        "/dots/new",
+        "/dots/:id",
+        "/dots/thread/:threadId"
+      ],
+      "mobile": "chatgpt://dots-entry (mobile-specific text; not assumed to work on desktop)",
+      "sources": [
+        "app-initial-90eb42395b7d.js",
+        "src-Dtwb7yKT.js",
+        "landing-route-a24170fcbaae.js"
+      ]
+    },
+    "retry_behavior": "Creation is marked retry:never. An ambiguous timeout is treated as unknown outcome, not a reason to blindly create again.",
+    "backend": {
+      "url": "https://chatgpt.com/backend-api",
+      "source": "bootstrap-Dn-4EbjT.js, Ft production base; Gt/Kt request URL construction",
+      "caveat": "Authenticated workspace routing may override backend origin."
+    }
+  },
+  "unverified": [
+    "Whether a separately registered CLI can obtain authorization for these internal Dot endpoints",
+    "Authenticated list/create/activity calls",
+    "Desktop deep-link navigation on the currently running app",
+    "Windows native execution"
+  ],
+  "public_docs": {
+    "dot_onboarding": "https://learn.chatgpt.com/docs/dots/getting-started",
+    "oauth_scope_boundary": "https://developers.openai.com/siwc/token-sharing-open-source",
+    "api_agents_are_project_scoped": "https://developers.openai.com/api/reference/typescript/resources/beta/subresources/agents/methods/create",
+    "workspace_agent_triggers": "https://developers.openai.com/workspace-agents"
+  },
+  "source_sha256": {
+    "cloud-aeon-onboarding-2e6570831113.js": "83855d17b220b44c5d8df378b95c1e497e8fc00570f468fb9fa11ece19979421",
+    "app-initial-90eb42395b7d.js": "2687d59e8c67ccf81c7efb3820211070df303c6a200c9e0e8d604f26253f2f5e",
+    "main-CLu1A25j.js": "8aedee047ec0a078e65b24dc917c64ad544220395e773feb6740f4447008a495",
+    "src-Dtwb7yKT.js": "a0e4b4b014f04a9391bcfa6a0d6f2b6703590daacf3591831a62fec809b2cb76",
+    "bootstrap-Dn-4EbjT.js": "6d11c372acf41d8b79975a8c99cf7027758977f56cdfd0c7eaa770d362687101"
+  },
+  "implementation": {
+    "version": "0.2.0",
+    "authentication": "Explicit supplied account token and account ID; secure OS store or process environment. No standalone browser OAuth flow implemented.",
+    "verification": "Mocked transport and CLI tests only; no live authenticated account call.",
+    "atomic_setup": [
+      "check",
+      "app",
+      "open",
+      "web",
+      "auth",
+      "api"
+    ],
+    "creation": "Single creation write; messaging-room recovery is a separate dots room command."
+  }
+}
