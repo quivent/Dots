@@ -1,6 +1,6 @@
 # Dots CLI
 
-Run `make` to build and install the CLI, then `dots setup` to see the numbered setup commands. Use `dots setup run` to execute prerequisites through account discovery. Windows: `py -m pip install .`. Linux: `make` also works. Requires Python 3.10+. See [INSTALL.md](INSTALL.md).
+Run `make` to build and install the CLI, then `dots setup` to see the individual setup commands. Use `dots setup run` to execute prerequisites through account discovery. Windows: `py -m pip install .`. Linux: `make` also works. Requires Python 3.10+. See [INSTALL.md](INSTALL.md).
 
 ## Set up
 
@@ -10,7 +10,7 @@ Run `make` to build and install the CLI, then `dots setup` to see the numbered s
 | `dots auth` | Reuse an existing ChatGPT login, or start first-party browser sign-in when missing; then verify Dot account access |
 | `dots preflight` | Check local readiness and current Dot account access without signing in |
 | `dots installation` | List the individual setup commands without running them |
-| `dots setup` | Show the numbered setup commands; no actions run |
+| `dots setup` | Show the individual setup commands; no actions run |
 | `dots setup run` | Run prerequisites: update → preflight → auth → list in order |
 | `dots setup onboard` | Open Dot onboarding in ChatGPT |
 | `dots doctor` | Full troubleshooting: local state, account access, tools, assets, and private-note permissions |

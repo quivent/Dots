@@ -15,7 +15,7 @@ from rich_argparse import RichHelpFormatter
 GROUPS = [
     ('Setup', [
         ('update', '', 'Update the installed Dots CLI'),
-        ('setup', '', 'Show the numbered setup steps'),
+        ('setup', '', 'Show the setup steps'),
         ('installation', '', 'List the individual installation and setup commands'),
         ('setup run', '', 'Run setup prerequisites through account discovery'),
         ('preflight', '', 'Check this computer and Dot account access'),
@@ -120,22 +120,19 @@ class DotsParser(argparse.ArgumentParser):
 
 
 def show_setup():
-    from .workflow import SETUP_STEPS, step_command
-    console.print(Text('\nSetup', style='bold #f9a8d4'))
-    console.print('[dim]Every operation in terminal setup. NAME is your chosen name; DOT is a returned ID or unique name.[/dim]\n')
-    for index, step in enumerate(SETUP_STEPS, 1):
-        label = Text(f'  {index:02d}  ', style='#67e8f9')
-        label.append(step['description'].rstrip('.'), style='bold #a7f3d0')
+    from .workflow import SETUP_STEPS
+    rows = []
+    for step in SETUP_STEPS:
+        arguments = step['args'] or tuple(step['via'].split()[1:])
+        description = step['description'].rstrip('.')
         if step['status'] != 'independent':
-            label.append(' · ' + step['status'], style='#fdba74')
-        console.print(label)
-        command = step_command(step)
-        if command:
-            console.print(Text('      ' + command))
-        if step.get('note'):
-            console.print(Text('      ' + step['note'], style='dim'))
-    console.print('\n[dim]dots setup run runs prerequisites 01–04 only; it does not create a Dot.[/dim]')
-    console.print('[dim]Steps 05–07 are currently one creation request, not independent commands. Live creation remains unverified.[/dim]\n')
+            description += ' · ' + step['status']
+        rows.append((arguments[0], ' '.join(arguments[1:]), description))
+    console.print()
+    command_tree(console, 'Installation', rows)
+    console.print('[dim]NAME: chosen name · DOT: returned ID or unique name[/dim]')
+    console.print('[dim]dots setup run runs update, preflight, auth, and list only.[/dim]')
+    console.print('[dim]Profile, conversation, and initialization share one create request; live creation remains unverified.[/dim]\n')
 
 
 def show_list(entries):
