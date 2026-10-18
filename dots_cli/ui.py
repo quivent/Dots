@@ -14,12 +14,12 @@ from rich_argparse import RichHelpFormatter
 # Each row is a real command, its arguments, and a short description.
 GROUPS = [
     ('Setup', [
-        ('update', '', 'Update the installed Dots CLI'),
         ('setup', '', 'Show the setup steps'),
         ('installation', '', 'List the individual installation and setup commands'),
-        ('setup run', '', 'Run setup prerequisites through account discovery'),
+        ('update', '', 'Update the installed Dots CLI'),
         ('preflight', '', 'Check this computer and Dot account access'),
         ('auth', '', 'Sign in, or reuse your existing login'),
+        ('setup run', '', 'Run setup prerequisites through account discovery'),
         ('setup onboard', '', 'Open Dot onboarding in ChatGPT'),
     ]),
     ('Dots', [

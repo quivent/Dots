@@ -29,7 +29,7 @@ class MenuTests(unittest.TestCase):
         self.assertLess(output.index('▸ Dots'), output.index('▸ Manage'))
         self.assertIn('  ├─ dots setup', output)
         self.assertIn('dots setup run', output)
-        self.assertLess(output.index('dots update'), output.index('dots setup'))
+        self.assertLess(output.index('dots setup'), output.index('dots update'))
         self.assertIn('dots setup onboard', output)
         client.assert_not_called()
         launcher.return_value.launch.assert_not_called()
