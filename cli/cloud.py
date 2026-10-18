@@ -92,33 +92,26 @@ def run(args, launcher):
             token, account, source = credentials()
             if token and not account:
                 raise ApiError('The explicit token is missing its account ID. Set DOTS_ACCOUNT_ID or remove the override to use ChatGPT sign-in.')
-            if not token or not account:
-                token, account = sign_in()
-                source = 'ChatGPT sign-in'
-            rejected_saved = source == 'OS credential store'
-            try:
-                DotClient(token, account).list()
-            except ApiError as error:
-                if error.status != 401 or source not in ('existing ChatGPT sign-in', 'OS credential store'):
-                    raise
-                if rejected_saved:
-                    token, account, source = credentials(ignore_saved=True)
-                else:
-                    token, account, source = '', '', 'none'
+            rejected_saved = False
+            # At most: saved override, existing app login, fresh first-party login.
+            for attempt in range(3):
                 if not token or not account:
                     token, account = sign_in()
                     source = 'ChatGPT sign-in'
                 try:
                     DotClient(token, account).list()
-                except ApiError as retry_error:
-                    if retry_error.status != 401 or source != 'existing ChatGPT sign-in':
+                    break
+                except ApiError as error:
+                    if attempt == 2 or error.status != 401 or source not in ('existing ChatGPT sign-in', 'OS credential store'):
                         raise
-                    token, account = sign_in()
-                    source = 'ChatGPT sign-in'
-                    DotClient(token, account).list()
-                if rejected_saved:
-                    # Remove the rejected override only after a replacement login works.
-                    credential_store().delete_password(SERVICE, 'account')
+                    if source == 'OS credential store':
+                        rejected_saved = True
+                        token, account, source = credentials(ignore_saved=True)
+                    else:
+                        token, account, source = '', '', 'none'
+            if rejected_saved:
+                # Remove the rejected override only after a replacement login works.
+                credential_store().delete_password(SERVICE, 'account')
             print('Authenticated with ChatGPT. Dot account access verified (' + source + ').')
         elif action == 'login':
             store = credential_store()
@@ -152,8 +145,7 @@ def run(args, launcher):
             entries = launcher.list_dots()
             output({'source': 'local_registry', 'dots': entries}, True) if args.json else show_list(entries)
         elif args.command == 'create':
-            result = launcher.create(args.name, args.no_open)
-            output(result, args.json)
+            output(launcher.create(args.name, args.no_open), args.json)
         elif args.command == 'use':
             output(launcher.use(args.name), args.json)
         else:

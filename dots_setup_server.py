@@ -3,4 +3,4 @@ from pathlib import Path
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from dots_cli.server import *
+from cli.server import *

@@ -37,7 +37,7 @@ def execute_step(arguments):
     import sys
     # Reload the installed package for each step, especially after self-update.
     # A source checkout in the caller's working directory must not shadow it.
-    return subprocess.run([sys.executable, '-m', 'dots_cli', *arguments],
+    return subprocess.run([sys.executable, '-m', 'cli', *arguments],
                           cwd=Path(sys.executable).parent).returncode
 
 

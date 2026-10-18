@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from unittest.mock import Mock
 
-from dots_cli.cli import Launcher, PROJECT, main
+from cli.cli import Launcher, PROJECT, main
 
 
 class CliTests(unittest.TestCase):

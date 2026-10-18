@@ -18,10 +18,10 @@ classifiers = [
 ]
 
 [project.scripts]
-dots = "dots_cli.cli:main"
+dots = "cli.cli:main"
 
 [tool.setuptools]
-packages = ["dots_cli", "dots_cli.assets"]
+packages = ["cli", "cli.assets"]
 
 [tool.setuptools.package-data]
-"dots_cli.assets" = ["*.html", "*.md"]
+"cli.assets" = ["*.html", "*.md"]

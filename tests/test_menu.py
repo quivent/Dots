@@ -5,23 +5,23 @@ import unittest
 from unittest.mock import Mock, patch, call
 
 from rich.console import Console
-from dots_cli.cli import main
-from dots_cli.workflow import run_setup
+from cli.cli import main
+from cli.workflow import run_setup
 
 
 class MenuTests(unittest.TestCase):
     def invoke(self, args, color=False):
         stream = io.StringIO()
         console = Console(file=stream, force_terminal=color, no_color=not color, width=100)
-        with patch('dots_cli.ui.console', console), redirect_stdout(stream), redirect_stderr(stream):
+        with patch('cli.ui.console', console), redirect_stdout(stream), redirect_stderr(stream):
             try:
                 result = main(args)
             except SystemExit as error:
                 result = error.code
         return result, stream.getvalue()
 
-    @patch('dots_cli.cli.Launcher')
-    @patch('dots_cli.cloud.DotClient')
+    @patch('cli.cli.Launcher')
+    @patch('cli.cloud.DotClient')
     def test_main_menu_is_grouped_and_side_effect_free(self, client, launcher):
         code, output = self.invoke([])
         self.assertEqual(code, 0)
@@ -40,8 +40,8 @@ class MenuTests(unittest.TestCase):
         self.assertIn('\x1b[', colored)
         self.assertNotIn('\x1b[', plain)
 
-    @patch('dots_cli.cli.Launcher')
-    @patch('dots_cli.workflow.run_setup')
+    @patch('cli.cli.Launcher')
+    @patch('cli.workflow.run_setup')
     def test_wrong_commands_get_consistent_corrections_without_execution(self, run, launcher):
         cases = [
             (['setup', 'steps'], 'Unknown command: dots setup steps', 'Try: dots installation'),
@@ -67,8 +67,8 @@ class MenuTests(unittest.TestCase):
         self.assertEqual(len(stderr.getvalue().splitlines()), 2)
         self.assertNotIn('Usage:', stderr.getvalue())
 
-    @patch('dots_cli.cli.Launcher')
-    @patch('dots_cli.cloud.DotClient')
+    @patch('cli.cli.Launcher')
+    @patch('cli.cloud.DotClient')
     def test_setup_lists_exact_steps_without_executing_them(self, client, launcher):
         code, output = self.invoke(['setup', '--json'])
         data = json.loads(output)
@@ -83,9 +83,9 @@ class MenuTests(unittest.TestCase):
         client.assert_not_called()
         launcher.return_value.launch.assert_not_called()
 
-    @patch('dots_cli.workflow.run_setup')
-    @patch('dots_cli.cli.Launcher')
-    @patch('dots_cli.cloud.DotClient')
+    @patch('cli.workflow.run_setup')
+    @patch('cli.cli.Launcher')
+    @patch('cli.cloud.DotClient')
     def test_installation_matches_setup_without_executing(self, client, launcher, run):
         for suffix in ([], ['--json']):
             with self.subTest(suffix=suffix):
@@ -100,7 +100,7 @@ class MenuTests(unittest.TestCase):
         client.assert_not_called()
         launcher.return_value.launch.assert_not_called()
 
-    @patch('dots_cli.workflow.run_setup')
+    @patch('cli.workflow.run_setup')
     def test_setup_run_requires_explicit_action(self, run):
         run.return_value = 0
         code, _ = self.invoke(['setup', 'run'])
@@ -109,20 +109,20 @@ class MenuTests(unittest.TestCase):
 
     def test_runner_executes_only_prerequisites_without_creation_or_browser(self):
         execute = Mock(return_value=0)
-        with patch('dots_cli.ui.console', Console(file=io.StringIO())):
+        with patch('cli.ui.console', Console(file=io.StringIO())):
             self.assertEqual(run_setup(execute), 0)
         self.assertEqual(execute.call_args_list, [call(['update']), call(['preflight']), call(['auth']), call(['list'])])
 
     def test_failed_step_stops_pipeline_and_names_the_independent_command(self):
         execute = Mock(side_effect=[0, 7])
         stream = io.StringIO()
-        with patch('dots_cli.ui.console', Console(file=stream)):
+        with patch('cli.ui.console', Console(file=stream)):
             self.assertEqual(run_setup(execute), 7)
         self.assertEqual(execute.call_count, 2)
         self.assertIn('stopped at dots preflight', stream.getvalue())
         self.assertIn('independently', stream.getvalue())
 
-    @patch('dots_cli.workflow.run_setup')
+    @patch('cli.workflow.run_setup')
     def test_interactive_run_rejects_json_before_any_execution(self, run):
         code, output = self.invoke(['setup', 'run', '--json'])
         self.assertEqual(code, 1)

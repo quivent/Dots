@@ -5,7 +5,7 @@ import subprocess
 import tempfile
 import unittest
 from unittest.mock import Mock
-import dots_cli.cli as dots
+import cli.cli as dots
 
 class LauncherTests(unittest.TestCase):
     def setUp(self):

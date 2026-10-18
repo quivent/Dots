@@ -5,8 +5,8 @@ import subprocess
 import unittest
 from unittest.mock import Mock, patch
 
-from dots_cli.auth import AuthUnavailable, _exchange, _account_id, existing_credentials
-from dots_cli.api import credentials
+from cli.auth import AuthUnavailable, _exchange, _account_id, existing_credentials
+from cli.api import credentials
 
 
 class ExistingAuthTests(unittest.TestCase):
@@ -37,8 +37,8 @@ class ExistingAuthTests(unittest.TestCase):
         self.assertEqual(_account_id({}, 'header.' + part + '.signature'), 'fixture-account')
         self.assertIsNone(_account_id({}, 'malformed'))
 
-    @patch('dots_cli.auth.executable', return_value='/mock/codex')
-    @patch('dots_cli.auth.subprocess.Popen')
+    @patch('cli.auth.executable', return_value='/mock/codex')
+    @patch('cli.auth.subprocess.Popen')
     def test_server_transport_closes_without_persisting_credentials(self, start, executable):
         process = start.return_value
         process.stdin = io.StringIO()
@@ -53,41 +53,41 @@ class ExistingAuthTests(unittest.TestCase):
         self.assertTrue(process.stdin.closed)
         self.assertTrue(process.stdout.closed)
 
-    @patch('dots_cli.auth.executable', return_value='/mock/codex')
-    @patch('dots_cli.auth.subprocess.Popen', side_effect=OSError('fixture-sensitive-value'))
+    @patch('cli.auth.executable', return_value='/mock/codex')
+    @patch('cli.auth.subprocess.Popen', side_effect=OSError('fixture-sensitive-value'))
     def test_transport_failures_do_not_expose_raw_errors(self, start, executable):
         with self.assertRaises(AuthUnavailable) as error:
             existing_credentials()
         self.assertNotIn('fixture-sensitive-value', str(error.exception))
 
     @patch.dict('os.environ', {}, clear=True)
-    @patch('dots_cli.api.credential_store')
-    @patch('dots_cli.auth.existing_credentials', return_value=('fixture-token', 'fixture-account'))
+    @patch('cli.api.credential_store')
+    @patch('cli.auth.existing_credentials', return_value=('fixture-token', 'fixture-account'))
     def test_client_falls_back_to_existing_login(self, existing, store):
         store.return_value.get_password.return_value = None
         self.assertEqual(credentials(), ('fixture-token', 'fixture-account', 'existing ChatGPT sign-in'))
         store.return_value.set_password.assert_not_called()
 
     @patch.dict('os.environ', {'DOTS_ACCESS_TOKEN': 'explicit', 'DOTS_ACCOUNT_ID': 'account'}, clear=True)
-    @patch('dots_cli.auth.existing_credentials')
+    @patch('cli.auth.existing_credentials')
     def test_explicit_environment_overrides_existing_login(self, existing):
         self.assertEqual(credentials(), ('explicit', 'account', 'environment'))
         existing.assert_not_called()
 
-    @patch('dots_cli.auth.executable', return_value='/mock/codex')
-    @patch('dots_cli.auth.subprocess.run')
-    @patch('dots_cli.auth.existing_credentials', return_value=('fixture-token', 'fixture-account'))
+    @patch('cli.auth.executable', return_value='/mock/codex')
+    @patch('cli.auth.subprocess.run')
+    @patch('cli.auth.existing_credentials', return_value=('fixture-token', 'fixture-account'))
     def test_missing_login_can_start_first_party_sign_in(self, existing, run, executable):
-        from dots_cli.auth import sign_in
+        from cli.auth import sign_in
         run.return_value.returncode = 0
         self.assertEqual(sign_in(), ('fixture-token', 'fixture-account'))
         run.assert_called_once_with(['/mock/codex', 'login'], check=False)
 
-    @patch('dots_cli.auth.executable', return_value='/mock/codex')
-    @patch('dots_cli.auth.subprocess.run')
-    @patch('dots_cli.auth.existing_credentials')
+    @patch('cli.auth.executable', return_value='/mock/codex')
+    @patch('cli.auth.subprocess.run')
+    @patch('cli.auth.existing_credentials')
     def test_cancelled_sign_in_does_not_claim_success(self, existing, run, executable):
-        from dots_cli.auth import sign_in
+        from cli.auth import sign_in
         run.return_value.returncode = 1
         with self.assertRaises(AuthUnavailable):
             sign_in()

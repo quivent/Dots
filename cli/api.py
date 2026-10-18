@@ -7,9 +7,8 @@ from __future__ import annotations
 
 import json
 import os
-import socket
 from http.client import HTTPException
-from urllib.error import HTTPError, URLError
+from urllib.error import HTTPError
 from urllib.parse import quote, urlencode, unquote
 from urllib.request import Request, build_opener, HTTPRedirectHandler
 
@@ -131,10 +130,10 @@ class DotClient:
             if method != 'GET' and error.code >= 500:
                 message += ' Outcome unknown; inspect dots list/activity before repeating the command.'
             raise ApiError(f'{message} (HTTP {error.code})', status=error.code) from None
-        except (URLError, TimeoutError, socket.timeout, OSError, HTTPException):
+        except (OSError, HTTPException):
             suffix = ' Outcome unknown; inspect dots list/activity before repeating the command.' if method != 'GET' else ''
             raise ApiError('Could not reach the Dot API.' + suffix) from None
-        except (ValueError, UnicodeError):
+        except ValueError:
             suffix = ' The write may have succeeded; check dots list/activity before repeating it.' if method != 'GET' else ''
             raise ApiError('Unexpected response from the internal Dot API.' + suffix) from None
 
@@ -173,15 +172,14 @@ class DotClient:
         if target:
             exact = [e for e in entries if e.get('id') == target]
             matches = exact or [e for e in entries if str(e.get('display_name', '')).casefold() == target.casefold()]
+        elif len(entries) == 1:
+            matches = entries
         else:
-            if len(entries) == 1:
-                matches = entries
-            else:
-                primary = self.request('GET', '/tbo/primary')
-                profile = primary.get('profile') if isinstance(primary, dict) else None
-                if isinstance(profile, dict) and profile.get('id') in [e.get('id') for e in entries]:
-                    return profile['id']
-                raise ApiError('Specify a Dot ID or unique name, or select one with dots use.')
+            primary = self.request('GET', '/tbo/primary')
+            profile = primary.get('profile') if isinstance(primary, dict) else None
+            if isinstance(profile, dict) and profile.get('id') in [e.get('id') for e in entries]:
+                return profile['id']
+            raise ApiError('Specify a Dot ID or unique name, or select one with dots use.')
         if len(matches) != 1:
             raise ApiError('Dot not found or name is ambiguous. Use its ID from dots list.')
         return matches[0]['id']

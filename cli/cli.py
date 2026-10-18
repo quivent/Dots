@@ -256,22 +256,19 @@ class Launcher:
         elif action == 'copy':
             if not prompt.strip(): raise ValueError('Write or select a prompt to copy.')
             commands.append(self.clipboard_command(prompt))
-        elif action == 'setup':
-            if self.app_available():
+        elif action in ('setup', 'web', 'guide'):
+            target = {'setup': 'https://chatgpt.com/dots', 'web': 'https://chatgpt.com/', 'guide': SETUP_URL}[action]
+            command = self.url_command(target)
+            if action == 'setup' and self.app_available():
+                fallback = command['argv']
                 command = {'argv': ['/usr/bin/open', '-a', str(self.app), 'codex://dots']} if self.platform == 'darwin' else self.url_command('codex://dots')
-                command['fallback_argv'] = self.url_command('https://chatgpt.com/dots')['argv']
-                commands.append(command)
-            else:
-                commands.append(self.url_command('https://chatgpt.com/dots'))
+                command['fallback_argv'] = fallback
+            commands.append(command)
         elif action == 'activity':
             target = self.validate_url(url)
             if not target:
                 raise ValueError('A Dot activity URL is required.')
             commands.append(self.url_command(target))
-        elif action == 'web':
-            commands.append(self.url_command('https://chatgpt.com/'))
-        elif action == 'guide':
-            commands.append(self.url_command(SETUP_URL))
         elif action == 'folder':
             executable = '/usr/bin/open' if self.platform == 'darwin' else 'explorer.exe' if self.platform == 'win32' else 'xdg-open'
             commands.append({'argv': [executable, str(self.project)]})
@@ -280,7 +277,7 @@ class Launcher:
         return commands
 
     def url_command(self, url):
-        return {'argv': ['/usr/bin/open', url] if self.platform == 'darwin' else [sys.executable, '-m', 'dots_cli.browser', url]}
+        return {'argv': ['/usr/bin/open', url] if self.platform == 'darwin' else [sys.executable, '-m', 'cli.browser', url]}
 
     def app_command(self):
         return {'argv': ['/usr/bin/open', '-a', str(self.app)] if self.platform == 'darwin' else [str(self.app)]}
@@ -309,15 +306,15 @@ class Launcher:
                 if action == 'setup' or prompt.strip():
                     self.init_project()
                 for command in commands:
+                    fallback = command.get('fallback_argv')
                     try:
                         result = self.runner(command['argv'], input=command.get('input'), text=True, encoding='utf-8', capture_output=True, timeout=15)
                     except (OSError, subprocess.SubprocessError):
-                        if not command.get('fallback_argv'):
+                        if not fallback:
                             raise
-                        result = self.runner(command['fallback_argv'], text=True, encoding='utf-8', capture_output=True, timeout=15)
-                    else:
-                        if result.returncode and command.get('fallback_argv'):
-                            result = self.runner(command['fallback_argv'], text=True, encoding='utf-8', capture_output=True, timeout=15)
+                        result = None
+                    if fallback and (result is None or result.returncode):
+                        result = self.runner(fallback, text=True, encoding='utf-8', capture_output=True, timeout=15)
                     if result.returncode:
                         raise ValueError('Could not complete the launch. Check that the app, clipboard tool, or browser is available.')
                     copied |= command.get('clipboard', False)
@@ -352,7 +349,7 @@ def main(argv=None):
         for stream in (sys.stdout, sys.stderr):
             if hasattr(stream, 'reconfigure'):
                 stream.reconfigure(encoding='utf-8')
-    from .ui import DotsParser, console, show_list, show_activity, show_preflight, show_doctor
+    from .ui import DotsParser, console, show_preflight, show_doctor
     if '--no-color' in (sys.argv[1:] if argv is None else argv):
         console.no_color=True
     parser=DotsParser(prog='dots', description='Manage account Dots and local setup tools.')
@@ -365,8 +362,8 @@ def main(argv=None):
                     'app': 'Open the desktop app and optionally copy a prompt',
                     'copy': 'Copy a prompt to the clipboard',
                     'run': 'Copy a task and open its conversation (paste and send yourself)'}
-    for name in ['open','app','copy','run']:
-        p=sub.add_parser(name, help=descriptions[name], description=descriptions[name])
+    for name, description in descriptions.items():
+        p=sub.add_parser(name, help=description, description=description)
         choice=p.add_mutually_exclusive_group()
         choice.add_argument('--preset',choices=['first','local','followup'])
         choice.add_argument('--prompt',help='Text to copy; passed as clipboard data, never shell code')
@@ -408,7 +405,7 @@ def main(argv=None):
             return update()
         if args.command in ('preflight', 'doctor'):
             from . import diagnostics
-            result = diagnostics.preflight(launcher) if args.command == 'preflight' else diagnostics.doctor(launcher)
+            result = getattr(diagnostics, args.command)(launcher)
             if args.json:
                 print(json.dumps(result, indent=2))
             else:
@@ -418,20 +415,19 @@ def main(argv=None):
         if args.command in ('setup', 'installation'):
             from .workflow import setup_plan, run_setup
             from .ui import show_setup
-            if getattr(args, 'setup_action', None) == 'run':
+            setup_action = getattr(args, 'setup_action', None)
+            if setup_action == 'run':
                 if args.json:
                     raise ValueError('setup run is interactive. Use dots setup --json to inspect its steps.')
                 return run_setup()
-            if getattr(args, 'setup_action', None) == 'onboard':
+            if setup_action == 'onboard':
                 result = launcher.launch('setup')
-                if args.json:
-                    print(json.dumps(result, indent=2))
-                else:
-                    print(result['message'])
             elif args.json:
-                print(json.dumps(setup_plan(), indent=2))
+                result = setup_plan()
             else:
                 show_setup()
+                return 0
+            print(json.dumps(result, indent=2) if args.json else result['message'])
             return 0
         from .cloud import run as run_cloud
         cloud_result = run_cloud(args, launcher)
@@ -445,8 +441,7 @@ def main(argv=None):
             serve(launcher, port=args.port, open_browser=not args.no_open)
             return 0
         if args.command=='configure': result=launcher.configure(args.url, args.name)
-        elif args.command=='status': result=launcher.status()
-        elif args.command=='history': result=launcher.history()
+        elif args.command in ('status', 'history'): result=getattr(launcher, args.command)()
         else:
             prompt=getattr(args,'prompt',None) or ''
             if getattr(args,'preset',None): prompt=next(p['text'] for p in launcher.presets() if p['id']==args.preset)

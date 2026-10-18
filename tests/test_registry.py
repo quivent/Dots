@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from unittest.mock import Mock
 
-from dots_cli.cli import Launcher, PROJECT
+from cli.cli import Launcher, PROJECT
 
 
 class RegistryTests(unittest.TestCase):

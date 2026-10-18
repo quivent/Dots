@@ -13,7 +13,7 @@ from urllib.request import Request, urlopen
 from . import __version__
 
 SOURCE = 'https://github.com/quivent/Dots/archive/refs/heads/main.zip'
-VERSION_URL = 'https://raw.githubusercontent.com/quivent/Dots/main/dots_cli/__init__.py'
+VERSION_URL = 'https://raw.githubusercontent.com/quivent/Dots/main/cli/__init__.py'
 
 
 def latest_version():
@@ -89,7 +89,7 @@ def update():
             return 0
         with console.status('Updating Dots CLI ' + __version__ + ' → ' + latest + '…'):
             install(environment)
-            result = run_quiet([sys.executable, '-m', 'dots_cli', '--version'], environment, timeout=30)
+            result = run_quiet([sys.executable, '-m', 'cli', '--version'], environment, timeout=30)
             installed = result.stdout.strip().removeprefix('dots ')
             if version_key(installed) < version_key(latest):
                 raise ValueError('The installed version did not match the requested update.')

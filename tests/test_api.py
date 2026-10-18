@@ -4,7 +4,7 @@ import unittest
 from urllib.error import HTTPError, URLError
 from unittest.mock import Mock, patch
 
-from dots_cli.api import ApiError, DotClient, NoRedirect, SecureStore
+from cli.api import ApiError, DotClient, NoRedirect, SecureStore
 
 
 def reply(data):
@@ -115,7 +115,7 @@ class ApiTests(unittest.TestCase):
         self.assertNotIn('private-token', str(caught.exception))
 
     def test_environment_credentials_do_not_read_app_stores(self):
-        from dots_cli.api import credentials
-        with patch.dict('os.environ', {'DOTS_ACCESS_TOKEN': 'token', 'DOTS_ACCOUNT_ID': 'account'}), patch('dots_cli.api.credential_store') as store:
+        from cli.api import credentials
+        with patch.dict('os.environ', {'DOTS_ACCESS_TOKEN': 'token', 'DOTS_ACCOUNT_ID': 'account'}), patch('cli.api.credential_store') as store:
             self.assertEqual(credentials(), ('token', 'account', 'environment'))
             store.assert_not_called()

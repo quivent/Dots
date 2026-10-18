@@ -47,7 +47,7 @@ def _account_id(result, token):
 
 
 def _exchange(rpc):
-    rpc('initialize', {'clientInfo': {'name': 'dots_cli', 'version': '0.2.5'},
+    rpc('initialize', {'clientInfo': {'name': 'cli', 'version': '0.2.5'},
                        'capabilities': {'experimentalApi': True}})
     account = rpc('account/read', {'refreshToken': False}).get('account') or {}
     if account.get('type') != 'chatgpt':

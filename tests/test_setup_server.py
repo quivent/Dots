@@ -10,8 +10,8 @@ import threading
 import unittest
 from unittest.mock import Mock
 
-from dots_cli.cli import Launcher, PROJECT, ASSETS
-from dots_cli.server import SetupServer, serve
+from cli.cli import Launcher, PROJECT, ASSETS
+from cli.server import SetupServer, serve
 
 
 class SetupServerTests(unittest.TestCase):
