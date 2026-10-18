@@ -13,9 +13,8 @@ GROUPS = [
     ('Setup', [
         ('setup', '', 'Show the numbered setup steps'),
         ('setup run', '', 'Run the setup steps in order'),
-        ('doctor', '', 'Check this computer and local files'),
+        ('preflight', '', 'Check this computer and Dot account access'),
         ('auth', '', 'Sign in, or reuse your existing login'),
-        ('check', '', 'Verify sign-in and Dot account access'),
         ('setup onboard', '', 'Open Dot onboarding in ChatGPT'),
     ]),
     ('Dots', [
@@ -36,6 +35,7 @@ GROUPS = [
         ('room', '[DOT]', 'Create or recover a messaging room'),
         ('configure', 'URL', 'Save a conversation shortcut'),
         ('serve', '', 'Open the local setup guide'),
+        ('doctor', '', 'Full troubleshooting diagnostics'),
         ('status', '', 'Show local configuration'),
         ('history', '', 'Show local launch history'),
         ('app', '', 'Open the desktop app'),
@@ -129,24 +129,33 @@ def show_activity(events):
     console.print('[dim]Dot task progress: conversation → profile → Activity. Use dots activity DOT --open for account activity.[/dim]')
 
 
-def show_doctor(data):
-    table = Table(title='Local readiness', box=None, show_header=False)
+def show_preflight(data):
+    table = Table(title='Setup preflight', box=None, show_header=False)
     table.add_column(style='bold')
     table.add_column()
     table.add_row('Project', Text(data['project']))
-    table.add_row('ChatGPT app', 'Installed' if data['app_available'] else 'Not found; browser fallback available')
-    table.add_row('Conversation', 'Link saved' if data['conversation_saved'] else 'No saved link')
-    table.add_row('Workspace', 'Ready' if data.get('workspace_ready') else 'Not initialized; use dots setup onboard')
-    table.add_row('Prompts', 'Ready' if data['presets_available'] else 'Missing')
-    table.add_row('FIRST-RESULT.md', 'Nonempty file found' if data['result_exists'] else 'Not found or empty')
+    def state(key, ready, missing):
+        return 'Not checked' if key not in data else ready if data[key] else missing
+    table.add_row('ChatGPT app', state('app_available', 'Installed', 'Not found; browser fallback available'))
+    table.add_row('Conversation', state('conversation_saved', 'Link saved', 'No saved link'))
+    table.add_row('Workspace', state('workspace_ready', 'Ready', 'Not initialized; use dots setup onboard'))
+    table.add_row('Prompts', state('presets_available', 'Ready', 'Missing'))
+    table.add_row('FIRST-RESULT.md', state('result_exists', 'Nonempty file found', 'Not found or empty'))
+    if data.get('local_error'):
+        table.add_row('Local configuration', Text(data['local_error']))
+    connection = data.get('connection')
+    table.add_row('Account sign-in', Text(data.get('credential_source', 'none')))
+    table.add_row('Dot account access', 'Verified' if connection == 'ready' else Text(data.get('connection_error', 'Authentication needed: dots auth')))
     console.print(table)
 
 
-def show_connection(data):
-    table = Table(title='Dot connection', box=None, show_header=False)
-    table.add_column(style='bold')
-    table.add_column()
-    table.add_row('Sign-in', Text(data['credential_source']))
-    table.add_row('Dot account access', 'Verified')
-    table.add_row('Dots', str(data['dot_count']))
+def show_doctor(data):
+    show_preflight(data)
+    console.print(Text('Python ' + data['python'] + ' · ' + data['platform'] + ' · dots ' + data['version'], style='dim'))
+    table = Table(title='Troubleshooting diagnostics', box=None)
+    table.add_column('Check')
+    table.add_column('State')
+    table.add_column('Detail')
+    for item in data['diagnostics']:
+        table.add_row(Text(item['check']), Text(item['state']), Text(item['detail']))
     console.print(table)

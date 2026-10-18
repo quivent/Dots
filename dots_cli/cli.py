@@ -225,7 +225,7 @@ class Launcher:
         result['message'] = 'Prompt copied and ChatGPT opened in your browser. Paste and send in your dot.'
         return result
 
-    def doctor(self):
+    def local_readiness(self):
         result = self.project / 'FIRST-RESULT.md'
         return dict(project=str(self.project), app_available=self.app_available(),
                     conversation_saved=bool(self.settings()['url']),
@@ -352,7 +352,7 @@ def main(argv=None):
         for stream in (sys.stdout, sys.stderr):
             if hasattr(stream, 'reconfigure'):
                 stream.reconfigure(encoding='utf-8')
-    from .ui import DotsParser, console, show_list, show_activity, show_doctor
+    from .ui import DotsParser, console, show_list, show_activity, show_preflight, show_doctor
     if '--no-color' in (sys.argv[1:] if argv is None else argv):
         console.no_color=True
     parser=DotsParser(prog='dots', description='Manage account Dots and local setup tools.')
@@ -381,10 +381,10 @@ def main(argv=None):
     setup.add_argument('setup_action', nargs='?', choices=['run', 'onboard'],
                        help='run: execute the setup sequence; onboard: launch Dot onboarding. Omit to list steps.')
     setup.add_argument('--json', action='store_true', help='Print the step list or onboarding result as JSON; unavailable with run')
-    check = sub.add_parser('check', help='Verify existing sign-in and read-only Dot account access')
-    check.add_argument('--json', action='store_true', help='Print connection checks as JSON')
-    doctor=sub.add_parser('doctor', help='Check local app, saved conversation, prompts, and result file')
-    doctor.add_argument('--json', action='store_true', help='Print local readiness checks as JSON')
+    preflight = sub.add_parser('preflight', help='Check local readiness and current Dot account access without signing in')
+    preflight.add_argument('--json', action='store_true', help='Print preflight results as JSON')
+    doctor=sub.add_parser('doctor', help='Run full read-only diagnostics for troubleshooting')
+    doctor.add_argument('--json', action='store_true', help='Print the full diagnostic report as JSON')
     prompt=sub.add_parser('prompt', help='Print a task prompt without opening apps or writing the clipboard')
     prompt.add_argument('preset', choices=['first','local','followup'], nargs='?', default='first', help='Prompt to print (default: first)')
     serve = sub.add_parser('serve', help='Open the local setup desk with launcher buttons')
@@ -400,20 +400,15 @@ def main(argv=None):
         if not args.command:
             parser.print_help()
             return 0
-        if args.command == 'check':
-            from .api import DotClient, credentials
-            from .ui import show_connection
-            token, account, source = credentials()
-            if not token or not account:
-                raise ValueError('No usable ChatGPT sign-in found. Run dots auth to sign in, then dots check. See dots auth --help for explicit credential alternatives.')
-            entries = DotClient(token, account).list()
-            result = {'credential_source': source, 'authenticated': True, 'read_access_verified': True,
-                      'dot_count': len(entries), 'write_access_verified': False}
+        if args.command in ('preflight', 'doctor'):
+            from . import diagnostics
+            result = diagnostics.preflight(launcher) if args.command == 'preflight' else diagnostics.doctor(launcher)
             if args.json:
                 print(json.dumps(result, indent=2))
             else:
-                show_connection(result)
-            return 0
+                (show_preflight if args.command == 'preflight' else show_doctor)(result)
+            failed = result.get('error') or result['connection'] == 'error' or any(item['state'] == 'error' for item in result.get('diagnostics', []))
+            return 1 if failed else 0
         if args.command == 'setup':
             from .workflow import SETUP_STEPS, run_setup
             from .ui import show_setup
@@ -438,13 +433,6 @@ def main(argv=None):
             return cloud_result
         if args.command=='prompt':
             print(next(p['text'] for p in launcher.presets() if p['id']==args.preset))
-            return 0
-        if args.command=='doctor':
-            result=launcher.doctor()
-            if args.json:
-                print(json.dumps(result, indent=2))
-            else:
-                show_doctor(result)
             return 0
         if args.command=='serve':
             from .server import serve

@@ -114,11 +114,11 @@ class AuditRegressions(unittest.TestCase):
             runner = Mock(return_value=subprocess.CompletedProcess([], 0, '', ''))
             launcher = Launcher(project=base / 'workspace', runtime=base / 'runtime', runner=runner,
                                 app=base / 'missing.app', platform='darwin')
-            self.assertFalse(launcher.doctor()['workspace_ready'])
+            self.assertFalse(launcher.local_readiness()['workspace_ready'])
             self.assertFalse(launcher.project.exists())
             with patch('dots_cli.cli.Launcher', return_value=launcher):
                 self.assertEqual(self.invoke(['setup', 'onboard'])[0], 0)
-            self.assertTrue(launcher.doctor()['workspace_ready'])
+            self.assertTrue(launcher.local_readiness()['workspace_ready'])
             self.assertIn('FIRST-RESULT.md', (launcher.project / '.gitignore').read_text(encoding='utf-8'))
             prompt = next(p['text'] for p in launcher.presets() if p['id'] == 'local')
             self.assertIn(str(launcher.project / 'README.md'), prompt)

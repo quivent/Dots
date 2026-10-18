@@ -21,12 +21,12 @@ class CliTests(unittest.TestCase):
             self.assertFalse((base / 'runtime').exists())
             runner.assert_not_called()
 
-    def test_doctor_does_not_claim_account_or_connection_access(self):
+    def test_local_readiness_does_not_claim_account_or_connection_access(self):
         with tempfile.TemporaryDirectory() as directory:
             base = Path(directory)
             runner = Mock()
             launcher = Launcher(runtime=base / 'runtime', runner=runner, app=base / 'missing.app', platform='darwin')
-            result = launcher.doctor()
+            result = launcher.local_readiness()
             self.assertFalse(result['app_available'])
             self.assertFalse(result['conversation_saved'])
             self.assertTrue(result['presets_available'])

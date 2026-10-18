@@ -7,16 +7,18 @@ Run `make` to build and install the CLI, then `dots setup` to see the numbered s
 | Command | Action |
 |---|---|
 | `dots auth` | Reuse an existing ChatGPT login, or start first-party browser sign-in when missing; then verify Dot account access |
-| `dots check` | Verify the current login and read-only Dot access; never starts a login flow |
+| `dots preflight` | Check local readiness and current Dot account access without signing in |
 | `dots setup` | Show the numbered setup commands; no actions run |
-| `dots setup run` | Run doctor → auth → check → setup onboard in order |
+| `dots setup run` | Run preflight → auth → setup onboard in order |
 | `dots setup onboard` | Open Dot onboarding in ChatGPT |
-| `dots doctor` | Check local app, prompts, saved conversation, and result file |
+| `dots doctor` | Full troubleshooting: local state, account access, tools, assets, and private-note permissions |
 | `dots serve` | Open the local guide independently of cloud access |
 
-If you are already signed into ChatGPT/Codex on this computer, Dot commands reuse that login automatically. You do not need to paste a token or run `auth` again. `dots create NAME` uses the same authentication source. `dots check`, `dots setup`, and `dots setup onboard` accept `--json`. The interactive runner does not.
+Preflight does not open a login flow or create files. A missing login is reported as `auth_required`, allowing the following `dots auth` step to sign in. Connection errors are reported separately and return a failure status. `dots doctor` additionally inspects configuration/history parsing, app-server availability, clipboard support, guide assets, and private-note permissions. Neither diagnostic command creates a Dot or changes account state.
 
-When no reusable login exists, run `dots auth`. It starts the first-party `codex login` flow and then checks Dot access. This requires a local app-server executable, found through `codex` on PATH or the bundled macOS ChatGPT app. Set `DOTS_CODEX` to its executable if needed. If neither is installed, install ChatGPT/Codex first. No Dot is created by `auth`, `check`, or `setup`.
+If you are already signed into ChatGPT/Codex on this computer, Dot commands reuse that login automatically. You do not need to paste a token or run `auth` again. `dots create NAME` uses the same authentication source. `dots preflight`, `dots setup`, and `dots setup onboard` accept `--json`. The interactive runner does not.
+
+When no reusable login exists, run `dots auth`. It starts the first-party `codex login` flow and then checks Dot access. This requires a local app-server executable, found through `codex` on PATH or the bundled macOS ChatGPT app. Set `DOTS_CODEX` to its executable if needed. If neither is installed, install ChatGPT/Codex first. No Dot is created by `auth`, `preflight`, or `setup`.
 
 App launch, local tools, authentication, connection checks, creation, and room repair are independent commands. A failed connection check does not block `dots app`, `dots setup`, `dots doctor`, or `dots serve`.
 
@@ -82,7 +84,7 @@ These do not require account credentials. The earlier shortcut-only behavior is 
 | `dots app` | Launch the desktop app |
 | `dots copy --preset first` | Copy a prompt |
 | `dots prompt local` | Print a prompt |
-| `dots doctor` | Inspect local readiness |
+| `dots doctor` | Full troubleshooting diagnostics |
 | `dots status` | Show local configuration and history |
 | `dots folder` | Open the project folder |
 | `dots web` | Open ChatGPT in the default browser |

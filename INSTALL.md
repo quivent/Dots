@@ -21,10 +21,10 @@ If Windows has `python` rather than the `py` launcher, use `python -m pip instal
 Or, if you downloaded the wheel:
 
 ```sh
-python3 -m pip install ./dots_cli-0.2.4-py3-none-any.whl
+python3 -m pip install ./dots_cli-0.2.5-py3-none-any.whl
 ```
 
-On Windows, use `py -m pip install .\dots_cli-0.2.4-py3-none-any.whl` for the wheel.
+On Windows, use `py -m pip install .\dots_cli-0.2.5-py3-none-any.whl` for the wheel.
 
 After installation, run `dots` for the command menu or `dots setup` for the numbered setup plan. Use `dots setup run` to execute the plan. Use `dots --help` for other commands. Pip installs the package, formatting and OS credential-store dependencies, and the `dots` console command.
 A virtual environment is not an application requirement, and there is no separate venv setup step.
@@ -46,21 +46,21 @@ If you are already signed into ChatGPT/Codex on this computer, the CLI reuses th
 | Command | Action |
 |---|---|
 | `dots auth` | Sign in when needed, then verify Dot account access |
-| `dots check` | Test the current sign-in and Dot access; no login flow |
+| `dots preflight` | Check local readiness and current Dot account access; no login flow |
 | `dots setup` | Show the numbered setup commands without running them |
-| `dots setup run` | Run doctor → auth → check → setup onboard |
+| `dots setup run` | Run preflight → auth → setup onboard |
 | `dots setup onboard` | Open guided Dot onboarding in ChatGPT |
 | `dots create NAME` | Create a Dot through the internal account API |
-| `dots doctor` | Inspect local readiness only |
+| `dots doctor` | Full read-only troubleshooting report |
 | `dots serve` | Run the local guide independently |
 
-`auth`, `check`, and `setup` do not create Dots. Existing-login reuse and catalog read access have been verified live; cloud creation is still unverified. The API and app-server token handoff are experimental. See [LAUNCHER.md](LAUNCHER.md) for the authentication sources, manual-token alternatives, executable discovery, and full reference.
+`auth`, `preflight`, and `setup` do not create Dots. Existing-login reuse and catalog read access have been verified live; cloud creation is still unverified. The API and app-server token handoff are experimental. See [LAUNCHER.md](LAUNCHER.md) for the authentication sources, manual-token alternatives, executable discovery, and full reference.
 
 Account commands include `list`, `use`, `show`, `activity`, `tasks`, `pause`, `resume`, and `room`. All accept `--json`. Local shortcuts remain independent: `dots list --local`, `dots create NAME --local`, `dots use NAME --local`, `dots activity --local`. `dots run --preset local` copies a prompt and opens ChatGPT; paste and send yourself.
 
 For recovery when catalog discovery is broken, use `dots show DOT_ID --by-id`. The same option works with `use`, `activity`, `tasks`, `room`, `pause`, and `resume`. `dots create NAME --first` or `--additional` skips the creation catalog lookup.
 
-An installed release uses `~/Dots` as its workspace. `dots setup onboard`, `dots serve`, and prompt-launch commands initialize missing workspace documents without overwriting existing ones. `dots doctor` checks readiness without creating files. The starter trial requires no separate tracker. Set `DOTS_PROJECT` to use another folder. `DOTS_DATA_HOME` overrides the local settings/history directory. Existing tracker-runtime settings are retained when that runtime is present.
+An installed release uses `~/Dots` as its workspace. `dots setup onboard`, `dots serve`, and prompt-launch commands initialize missing workspace documents without overwriting existing ones. `dots preflight` checks readiness and current account access without creating files. `dots doctor` provides broader troubleshooting diagnostics. The starter trial requires no separate tracker. Set `DOTS_PROJECT` to use another folder. `DOTS_DATA_HOME` overrides the local settings/history directory. Existing tracker-runtime settings are retained when that runtime is present.
 
 ## Upgrade or remove
 

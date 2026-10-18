@@ -104,7 +104,7 @@ class DotClient:
 
     def request(self, method, path, body=None, query=None):
         if not self.token or not self.account_id:
-            raise ApiError('No usable ChatGPT sign-in found. Run dots auth to sign in, then dots check. Run dots auth --help for explicit credential alternatives. An OpenAI API key does not provide Dot account access.')
+            raise ApiError('No usable ChatGPT sign-in found. Run dots auth to sign in, then dots preflight. Run dots auth --help for explicit credential alternatives. An OpenAI API key does not provide Dot account access.')
         if not valid_credential(self.token) or not valid_credential(self.account_id):
             raise ApiError('Invalid account credential.')
         url = BASE_URL + path + ('?' + urlencode(query) if query else '')
@@ -113,7 +113,7 @@ class DotClient:
             'Authorization': 'Bearer ' + self.token,
             'ChatGPT-Account-Id': self.account_id,
             'Accept': 'application/json', 'Content-Type': 'application/json',
-            'User-Agent': 'dots-cli/0.2.4',
+            'User-Agent': 'dots-cli/0.2.5',
         })
         try:
             with self.opener.open(request, timeout=540 if method == 'POST' and path == '/tbo' else 30) as response:
@@ -121,7 +121,7 @@ class DotClient:
                 return json.loads(raw) if raw else {}
         except HTTPError as error:
             error.close()
-            messages = {401: 'Account authorization expired or was rejected. Check your ChatGPT/Codex sign-in, then run dots check.',
+            messages = {401: 'Account authorization expired or was rejected. Check your ChatGPT/Codex sign-in, then run dots preflight.',
                         403: 'Dot access was denied. Check account eligibility, workspace permissions, and credential scope.',
                         404: 'Dot or internal route not found.',
                         409: 'Account state conflict. Check dots list before retrying creation.',

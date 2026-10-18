@@ -66,10 +66,11 @@ class CloudCliTests(unittest.TestCase):
 
     @patch('dots_cli.api.credentials', return_value=('fixture-token', 'fixture-account', 'existing ChatGPT sign-in'))
     @patch('dots_cli.api.DotClient')
-    def test_check_verifies_reads_without_writing_or_launching(self, client, credential):
+    def test_preflight_verifies_reads_without_writing_or_launching(self, client, credential):
         client.return_value.list.return_value = []
         with patch('dots_cli.cli.Launcher') as launcher:
-            code, output = self.invoke(['check', '--json'])
+            launcher.return_value.local_readiness.return_value = {'project': '/mock/project'}
+            code, output = self.invoke(['preflight', '--json'])
         self.assertEqual(code, 0)
         self.assertIn('"read_access_verified": true', output)
         self.assertIn('"write_access_verified": false', output)
@@ -79,10 +80,10 @@ class CloudCliTests(unittest.TestCase):
 
     @patch('dots_cli.api.credentials', return_value=('', '', 'none'))
     @patch('dots_cli.api.DotClient')
-    def test_check_missing_login_never_calls_api(self, client, credential):
-        code, output = self.invoke(['check', '--json'])
-        self.assertEqual(code, 1)
-        self.assertIn('sign-in', output)
+    def test_preflight_missing_login_never_calls_api(self, client, credential):
+        code, output = self.invoke(['preflight', '--json'])
+        self.assertEqual(code, 0)
+        self.assertIn('auth_required', output)
         client.assert_not_called()
 
     @patch('dots_cli.api.credentials', return_value=('fixture-token', 'fixture-account', 'existing ChatGPT sign-in'))
@@ -93,8 +94,10 @@ class CloudCliTests(unittest.TestCase):
             base = Path(folder)
             (base / 'dots-launcher.json').write_text('{broken', encoding='utf-8')
             with patch('dots_cli.cli.Launcher', return_value=Launcher(runtime=base)):
-                code, _ = self.invoke(['check', '--json'])
-        self.assertEqual(code, 0)
+                code, output = self.invoke(['preflight', '--json'])
+        self.assertEqual(code, 1)
+        self.assertIn('local_error', output)
+        self.assertIn('\"read_access_verified\": true', output)
 
     @patch('dots_cli.cli.Launcher')
     def test_setup_only_opens_onboarding(self, launcher):
@@ -140,15 +143,15 @@ class CloudCliTests(unittest.TestCase):
     @patch('dots_cli.api.credentials', return_value=('fixture-token', 'fixture-account', 'existing ChatGPT sign-in'))
     @patch('dots_cli.auth.sign_in')
     @patch('dots_cli.api.DotClient')
-    def test_check_does_not_sign_in_if_existing_login_is_rejected(self, client, sign_in, credential):
+    def test_preflight_does_not_sign_in_if_existing_login_is_rejected(self, client, sign_in, credential):
         from dots_cli.api import ApiError
         client.return_value.list.side_effect = ApiError('expired', status=401)
-        code, _ = self.invoke(['check'])
+        code, _ = self.invoke(['preflight'])
         self.assertEqual(code, 1)
         sign_in.assert_not_called()
 
     def test_root_help_includes_expanded_commands(self):
         code, output = self.invoke(['--help'])
         self.assertEqual(code, 0)
-        for command in ['check', 'auth', 'show', 'tasks', 'pause', 'resume', 'room']:
+        for command in ['preflight', 'auth', 'show', 'tasks', 'pause', 'resume', 'room']:
             self.assertIn(command, output)

@@ -1,8 +1,7 @@
 """One setup plan shared by the menu and runner; steps remain separate commands."""
 SETUP_STEPS = (
-    {'args': ('doctor',), 'description': 'Check the desktop app, local files, and saved shortcuts.'},
+    {'args': ('preflight',), 'description': 'Check local readiness and current Dot account access.'},
     {'args': ('auth',), 'description': 'Reuse your ChatGPT login, or sign in when needed.'},
-    {'args': ('check',), 'description': 'Verify the current connection to the Dot account API.'},
     {'args': ('setup', 'onboard'), 'description': 'Open Dot onboarding in ChatGPT.'},
 )
 
