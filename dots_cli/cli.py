@@ -378,7 +378,7 @@ def main(argv=None):
                             ('guide', 'Open the official onboarding instructions')]:
         sub.add_parser(name, help=help_text)
     sub.add_parser('update', help='Update this CLI from quivent/Dots on GitHub (main)')
-    installation = sub.add_parser('installation', help='List the individual installation and setup commands')
+    installation = sub.add_parser('installation', help='Show the full setup plan')
     installation.add_argument('--json', action='store_true', help='Print the command list as JSON')
     setup = sub.add_parser('setup', help='Start here; show the full plan or run prerequisites')
     setup.add_argument('setup_action', nargs='?', choices=['run', 'onboard'],

@@ -15,7 +15,7 @@ from rich_argparse import RichHelpFormatter
 GROUPS = [
     ('Setup', [
         ('setup', '', 'Show the setup steps'),
-        ('installation', '', 'List the individual installation and setup commands'),
+        ('installation', '', 'Show the full setup plan'),
         ('update', '', 'Update the installed Dots CLI'),
         ('preflight', '', 'Check this computer and Dot account access'),
         ('auth', '', 'Sign in, or reuse your existing login'),
