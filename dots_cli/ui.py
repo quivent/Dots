@@ -16,7 +16,7 @@ GROUPS = [
         ('doctor', '', 'Check this computer and local files'),
         ('auth', '', 'Sign in, or reuse your existing login'),
         ('check', '', 'Verify sign-in and Dot account access'),
-        ('setup open', '', 'Open Dot onboarding in ChatGPT'),
+        ('setup onboard', '', 'Open Dot onboarding in ChatGPT'),
     ]),
     ('Dots', [
         ('list', '', 'List your Dots'),

@@ -21,10 +21,10 @@ If Windows has `python` rather than the `py` launcher, use `python -m pip instal
 Or, if you downloaded the wheel:
 
 ```sh
-python3 -m pip install ./dots_cli-0.2.2-py3-none-any.whl
+python3 -m pip install ./dots_cli-0.2.3-py3-none-any.whl
 ```
 
-On Windows, use `py -m pip install .\dots_cli-0.2.2-py3-none-any.whl` for the wheel.
+On Windows, use `py -m pip install .\dots_cli-0.2.3-py3-none-any.whl` for the wheel.
 
 After installation, run `dots` for the command menu or `dots setup` for the numbered setup plan. Use `dots setup run` to execute the plan. Use `dots --help` for other commands. Pip installs the package, formatting and OS credential-store dependencies, and the `dots` console command.
 A virtual environment is not an application requirement, and there is no separate venv setup step.
@@ -48,8 +48,8 @@ If you are already signed into ChatGPT/Codex on this computer, the CLI reuses th
 | `dots auth` | Sign in when needed, then verify Dot account access |
 | `dots check` | Test the current sign-in and Dot access; no login flow |
 | `dots setup` | Show the numbered setup commands without running them |
-| `dots setup run` | Run doctor → auth → check → setup open |
-| `dots setup open` | Open guided Dot onboarding in ChatGPT |
+| `dots setup run` | Run doctor → auth → check → setup onboard |
+| `dots setup onboard` | Open guided Dot onboarding in ChatGPT |
 | `dots create NAME` | Create a Dot through the internal account API |
 | `dots doctor` | Inspect local readiness only |
 | `dots serve` | Run the local guide independently |

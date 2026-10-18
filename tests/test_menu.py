@@ -26,7 +26,7 @@ class MenuTests(unittest.TestCase):
         self.assertLess(output.index('▸ Dots'), output.index('▸ Manage'))
         self.assertIn('  ├─ dots setup', output)
         self.assertIn('dots setup run', output)
-        self.assertIn('dots setup open', output)
+        self.assertIn('dots setup onboard', output)
         client.assert_not_called()
         launcher.return_value.launch.assert_not_called()
 
@@ -43,7 +43,7 @@ class MenuTests(unittest.TestCase):
         data = json.loads(output)
         self.assertEqual(code, 0)
         self.assertEqual(data['run'], 'dots setup run')
-        self.assertEqual([step['command'] for step in data['steps']], ['dots doctor', 'dots auth', 'dots check', 'dots setup open'])
+        self.assertEqual([step['command'] for step in data['steps']], ['dots doctor', 'dots auth', 'dots check', 'dots setup onboard'])
         client.assert_not_called()
         launcher.return_value.launch.assert_not_called()
 
@@ -58,7 +58,7 @@ class MenuTests(unittest.TestCase):
         execute = Mock(return_value=0)
         with patch('dots_cli.ui.console', Console(file=io.StringIO())):
             self.assertEqual(run_setup(execute), 0)
-        self.assertEqual(execute.call_args_list, [call(['doctor']), call(['auth']), call(['check']), call(['setup', 'open'])])
+        self.assertEqual(execute.call_args_list, [call(['doctor']), call(['auth']), call(['check']), call(['setup', 'onboard'])])
 
     def test_failed_step_stops_pipeline_and_names_the_independent_command(self):
         execute = Mock(side_effect=[0, 7])

@@ -99,7 +99,7 @@ class DotClient:
             'Authorization': 'Bearer ' + self.token,
             'ChatGPT-Account-Id': self.account_id,
             'Accept': 'application/json', 'Content-Type': 'application/json',
-            'User-Agent': 'dots-cli/0.2.2',
+            'User-Agent': 'dots-cli/0.2.3',
         })
         try:
             with self.opener.open(request, timeout=540 if method == 'POST' and path == '/tbo' else 30) as response:

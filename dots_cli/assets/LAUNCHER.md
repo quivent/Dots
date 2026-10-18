@@ -9,12 +9,12 @@ Run `make` to build and install the CLI, then `dots setup` to see the numbered s
 | `dots auth` | Reuse an existing ChatGPT login, or start first-party browser sign-in when missing; then verify Dot account access |
 | `dots check` | Verify the current login and read-only Dot access; never starts a login flow |
 | `dots setup` | Show the numbered setup commands; no actions run |
-| `dots setup run` | Run doctor → auth → check → setup open in order |
-| `dots setup open` | Open Dot onboarding in ChatGPT |
+| `dots setup run` | Run doctor → auth → check → setup onboard in order |
+| `dots setup onboard` | Open Dot onboarding in ChatGPT |
 | `dots doctor` | Check local app, prompts, saved conversation, and result file |
 | `dots serve` | Open the local guide independently of cloud access |
 
-If you are already signed into ChatGPT/Codex on this computer, Dot commands reuse that login automatically. You do not need to paste a token or run `auth` again. `dots create NAME` uses the same authentication source. `dots check`, `dots setup`, and `dots setup open` accept `--json`. The interactive runner does not.
+If you are already signed into ChatGPT/Codex on this computer, Dot commands reuse that login automatically. You do not need to paste a token or run `auth` again. `dots create NAME` uses the same authentication source. `dots check`, `dots setup`, and `dots setup onboard` accept `--json`. The interactive runner does not.
 
 When no reusable login exists, run `dots auth`. It starts the first-party `codex login` flow and then checks Dot access. This requires a local app-server executable, found through `codex` on PATH or the bundled macOS ChatGPT app. Set `DOTS_CODEX` to its executable if needed. If neither is installed, install ChatGPT/Codex first. No Dot is created by `auth`, `check`, or `setup`.
 
@@ -30,7 +30,7 @@ The local app-server protocol confirms the existing ChatGPT account and hands of
 
 Cloud commands use internal ChatGPT routes observed in application version 26.1013.40934, rather than a published Dot API. The local auth handoff is also experimental; app updates can change it. Source details: [research/dot-protocol.json](research/dot-protocol.json). [Official login caching](https://learn.chatgpt.com/docs/auth#login-caching)
 
-`dots setup open` uses the observed `codex://dots` desktop route and `/dots` browser fallback. An accepted launch does not establish that onboarding completed. [Official onboarding](https://learn.chatgpt.com/docs/dots/getting-started)
+`dots setup onboard` uses the observed `codex://dots` desktop route and `/dots` browser fallback. An accepted launch does not establish that onboarding completed. [Official onboarding](https://learn.chatgpt.com/docs/dots/getting-started)
 
 ### Advanced credential alternatives
 

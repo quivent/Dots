@@ -338,9 +338,9 @@ def main(argv=None):
                             ('web', 'Open ChatGPT in a browser'),
                             ('guide', 'Open the official onboarding instructions')]:
         sub.add_parser(name, help=help_text)
-    setup = sub.add_parser('setup', help='Show setup steps; run runs them, open opens ChatGPT onboarding')
-    setup.add_argument('setup_action', nargs='?', choices=['run', 'open'],
-                       help='run: execute the setup sequence; open: launch Dot onboarding. Omit to list steps.')
+    setup = sub.add_parser('setup', help='Show setup steps; run executes them, onboard opens ChatGPT onboarding')
+    setup.add_argument('setup_action', nargs='?', choices=['run', 'onboard'],
+                       help='run: execute the setup sequence; onboard: launch Dot onboarding. Omit to list steps.')
     setup.add_argument('--json', action='store_true', help='Print the step list or onboarding result as JSON; unavailable with run')
     check = sub.add_parser('check', help='Verify existing sign-in and read-only Dot account access')
     check.add_argument('--json', action='store_true', help='Print connection checks as JSON')
@@ -382,7 +382,7 @@ def main(argv=None):
                 if args.json:
                     raise ValueError('setup run is interactive. Use dots setup --json to inspect its steps.')
                 return run_setup(main)
-            if args.setup_action == 'open':
+            if args.setup_action == 'onboard':
                 result = launcher.launch('setup')
                 if args.json:
                     print(json.dumps(result, indent=2))

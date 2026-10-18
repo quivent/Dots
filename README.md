@@ -6,9 +6,9 @@ Run `dots` for the grouped command menu. `dots setup` lists setup commands; `dot
 
 Optional local setup desk: run `dots serve`. It opens `http://127.0.0.1:8768/setup.html` with launcher actions, live local checks, and trial-note saving. You can also open [setup.html](setup.html) directly for instructions and copy buttons.
 
-`dots setup open` requests the Dot entry page directly. Complete the introduction there, name the Dot, and use [FIRST-MESSAGE.md](FIRST-MESSAGE.md) for the first trial. [Official setup](https://learn.chatgpt.com/docs/dots/getting-started)
+`dots setup onboard` requests the Dot entry page directly. Complete the introduction there, name the Dot, and use [FIRST-MESSAGE.md](FIRST-MESSAGE.md) for the first trial. [Official setup](https://learn.chatgpt.com/docs/dots/getting-started)
 
-`dots auth` signs in when needed and verifies access. `dots check` tests the current login without starting sign-in. `dots setup` shows the steps; `dots setup open` opens Dot onboarding. Already signed in through ChatGPT/Codex? The CLI reuses that login automatically.
+`dots auth` signs in when needed and verifies access. `dots check` tests the current login without starting sign-in. `dots setup` shows the steps; `dots setup onboard` opens Dot onboarding. Already signed in through ChatGPT/Codex? The CLI reuses that login automatically.
 
 The CLI includes account `list`, `create`, `use`, `show`, `activity`, `tasks`, `pause`, `resume`, and `room` commands. Existing-login reuse and catalog read access are verified; creation remains unverified. The account API and local auth handoff are experimental. Local tools work independently with `--local`. See [LAUNCHER.md](LAUNCHER.md) for every command and exact limits.
 

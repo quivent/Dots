@@ -3,7 +3,7 @@ SETUP_STEPS = (
     {'args': ('doctor',), 'description': 'Check the desktop app, local files, and saved shortcuts.'},
     {'args': ('auth',), 'description': 'Reuse your ChatGPT login, or sign in when needed.'},
     {'args': ('check',), 'description': 'Verify the current connection to the Dot account API.'},
-    {'args': ('setup', 'open'), 'description': 'Open Dot onboarding in ChatGPT.'},
+    {'args': ('setup', 'onboard'), 'description': 'Open Dot onboarding in ChatGPT.'},
 )
 
 
