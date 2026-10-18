@@ -8,3 +8,13 @@ dist/
 
 # Separate legacy hosted checkout
 site/
+
+# Local credentials, runtime state, and trial output
+.env
+.env.*
+!.env.example
+.DS_Store
+runtime/
+dots-launcher.json
+dots-launches.jsonl
+FIRST-RESULT.md
