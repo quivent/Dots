@@ -5,7 +5,10 @@ import tempfile
 import unittest
 from unittest.mock import Mock, patch
 
-from cli.cli import main, Launcher
+from cli.main import main, Launcher
+
+
+has = unittest.TestCase.assertIn
 
 
 class CloudCliTests(unittest.TestCase):
@@ -23,16 +26,16 @@ class CloudCliTests(unittest.TestCase):
         client.return_value.list.return_value = [{'id': 'dot1', 'display_name': 'Research'}]
         code, output = self.invoke(['list', '--json'])
         self.assertEqual(code, 0)
-        self.assertIn('dot1', output)
+        has(self, 'dot1', output)
         client.return_value.list.assert_called_once()
 
     @patch('cli.cloud.DotClient')
-    @patch('cli.cli.Launcher')
+    @patch('cli.main.Launcher')
     def test_local_list_is_independent_of_cloud_auth(self, launcher, client):
         launcher.return_value.list_dots.return_value = []
         code, output = self.invoke(['list', '--local', '--json'])
         self.assertEqual(code, 0)
-        self.assertIn('local_registry', output)
+        has(self, 'local_registry', output)
         client.assert_not_called()
 
     @patch('cli.cloud.DotClient')
@@ -68,12 +71,12 @@ class CloudCliTests(unittest.TestCase):
     @patch('cli.api.DotClient')
     def test_preflight_verifies_reads_without_writing_or_launching(self, client, credential):
         client.return_value.list.return_value = []
-        with patch('cli.cli.Launcher') as launcher:
+        with patch('cli.main.Launcher') as launcher:
             launcher.return_value.local_readiness.return_value = {'project': '/mock/project'}
             code, output = self.invoke(['preflight', '--json'])
         self.assertEqual(code, 0)
-        self.assertIn('"read_access_verified": true', output)
-        self.assertIn('"write_access_verified": false', output)
+        has(self, '"read_access_verified": true', output)
+        has(self, '"write_access_verified": false', output)
         self.assertNotIn('fixture-token', output)
         client.return_value.create.assert_not_called()
         launcher.return_value.launch.assert_not_called()
@@ -83,7 +86,7 @@ class CloudCliTests(unittest.TestCase):
     def test_preflight_missing_login_never_calls_api(self, client, credential):
         code, output = self.invoke(['preflight', '--json'])
         self.assertEqual(code, 0)
-        self.assertIn('auth_required', output)
+        has(self, 'auth_required', output)
         client.assert_not_called()
 
     @patch('cli.api.credentials', return_value=('fixture-token', 'fixture-account', 'existing ChatGPT sign-in'))
@@ -93,19 +96,19 @@ class CloudCliTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             base = Path(folder)
             (base / 'dots-launcher.json').write_text('{broken', encoding='utf-8')
-            with patch('cli.cli.Launcher', return_value=Launcher(runtime=base)):
+            with patch('cli.main.Launcher', return_value=Launcher(runtime=base)):
                 code, output = self.invoke(['preflight', '--json'])
         self.assertEqual(code, 1)
-        self.assertIn('local_error', output)
-        self.assertIn('\"read_access_verified\": true', output)
+        has(self, 'local_error', output)
+        has(self, '\"read_access_verified\": true', output)
 
-    @patch('cli.cli.Launcher')
+    @patch('cli.main.Launcher')
     def test_setup_only_opens_onboarding(self, launcher):
         launcher.return_value.launch.return_value = {'message': 'Dot onboarding launch requested.'}
         code, output = self.invoke(['setup', 'onboard'])
         self.assertEqual(code, 0)
         launcher.return_value.launch.assert_called_once_with('setup')
-        self.assertIn('onboarding', output)
+        has(self, 'onboarding', output)
 
     @patch('cli.cloud.credentials', return_value=('', '', 'none'))
     @patch('cli.auth.sign_in', return_value=('fixture-token', 'fixture-account'))
@@ -127,7 +130,7 @@ class CloudCliTests(unittest.TestCase):
         code, output = self.invoke(['auth'])
         self.assertEqual(code, 0)
         sign_in.assert_not_called()
-        self.assertIn('Authenticated', output)
+        has(self, 'Authenticated', output)
 
     @patch('cli.cloud.credentials', return_value=('fixture-token', 'fixture-account', 'existing ChatGPT sign-in'))
     @patch('cli.auth.sign_in', return_value=('new-fixture-token', 'fixture-account'))
@@ -154,4 +157,4 @@ class CloudCliTests(unittest.TestCase):
         code, output = self.invoke(['--help'])
         self.assertEqual(code, 0)
         for command in ['preflight', 'auth', 'show', 'tasks', 'pause', 'resume', 'room']:
-            self.assertIn(command, output)
+            has(self, command, output)

@@ -7,6 +7,9 @@ from unittest.mock import Mock, patch
 from cli.api import ApiError, DotClient, NoRedirect, SecureStore
 
 
+has = unittest.TestCase.assertIn
+
+
 def reply(data):
     response = Mock()
     response.read.return_value = json.dumps(data).encode()
@@ -32,8 +35,8 @@ class ApiTests(unittest.TestCase):
         client, opener = self.client({'items': [{'id': 'one'}], 'cursor': 'next'}, {'items': [{'id': 'two'}], 'cursor': None})
         self.assertEqual([x['id'] for x in client.list()], ['one', 'two'])
         request = opener.open.call_args_list[1].args[0]
-        self.assertIn('cursor=next', request.full_url)
-        self.assertIn('include_room_preview=false', request.full_url)
+        has(self, 'cursor=next', request.full_url)
+        has(self, 'include_room_preview=false', request.full_url)
         self.assertEqual(request.get_header('Authorization'), 'Bearer private-token')
         self.assertEqual(request.get_header('Chatgpt-account-id'), 'account-1')
 
@@ -76,7 +79,7 @@ class ApiTests(unittest.TestCase):
         opener.open.side_effect = [reply({'items': []}), HTTPError('https://example', 503, 'private-token', {}, io.BytesIO(b'private-token'))]
         with self.assertRaises(ApiError) as caught:
             client.create('Research')
-        self.assertIn('Outcome unknown', str(caught.exception))
+        has(self, 'Outcome unknown', str(caught.exception))
         self.assertNotIn('private-token', str(caught.exception))
         self.assertEqual(opener.open.call_count, 2)
 

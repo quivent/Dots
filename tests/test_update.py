@@ -14,6 +14,9 @@ from cli.update import SOURCE, update, latest_version, install, report_failure
 from cli.workflow import execute_step
 
 
+has = unittest.TestCase.assertIn
+
+
 class UpdateTests(unittest.TestCase):
     def invoke(self):
         stream = io.StringIO()
@@ -30,7 +33,7 @@ class UpdateTests(unittest.TestCase):
     def test_current_version_does_not_install_or_spawn(self, run, installer, latest):
         code, output = self.invoke()
         self.assertEqual(code, 0)
-        self.assertIn('up to date', output)
+        has(self, 'up to date', output)
         self.assertEqual(len(output.splitlines()), 1)
         installer.assert_not_called()
         run.assert_not_called()
@@ -55,7 +58,7 @@ class UpdateTests(unittest.TestCase):
         self.assertNotIn('PYTHONPATH', environment)
         self.assertNotIn('PYTHONHOME', environment)
         self.assertTrue(run.call_args.kwargs['capture_output'])
-        self.assertIn('updated to 9.0.0', output)
+        has(self, 'updated to 9.0.0', output)
         self.assertNotIn('UNWANTED', output)
         self.assertEqual(len(output.splitlines()), 1)
 
@@ -67,7 +70,7 @@ class UpdateTests(unittest.TestCase):
         self.assertEqual(run.call_count, 1)
         command = run.call_args.args[0]
         self.assertEqual(command[:6], ['/tools/uv', 'pip', 'install', '--quiet', '--python', sys.executable])
-        self.assertIn('--upgrade-package', command)
+        has(self, '--upgrade-package', command)
         self.assertNotIn('--upgrade', command)
         self.assertNotIn('--force-reinstall', command)
         self.assertEqual(command[-1], SOURCE)
@@ -103,7 +106,7 @@ class UpdateTests(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertNotIn('updated to', output)
         self.assertNotIn('RAW INSTALLER ERROR', output)
-        self.assertIn('Update log:', output)
+        has(self, 'Update log:', output)
         self.assertLessEqual(len(output.splitlines()), 4)
 
     def test_error_details_only_in_private_log(self):
@@ -116,7 +119,7 @@ class UpdateTests(unittest.TestCase):
                 report_failure(Console(file=stream, width=200), error)
             logs = list(Path(directory).glob('*.log'))
             self.assertEqual(len(logs), 1)
-            self.assertIn('PRIVATE FAILURE DETAILS', logs[0].read_text())
+            has(self, 'PRIVATE FAILURE DETAILS', logs[0].read_text())
             if os.name != 'nt':
                 self.assertEqual(stat.S_IMODE(logs[0].stat().st_mode), 0o600)
         self.assertNotIn('PRIVATE FAILURE DETAILS', stream.getvalue())

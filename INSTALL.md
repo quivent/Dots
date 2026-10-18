@@ -6,7 +6,7 @@ Run the appropriate command from the downloaded source folder:
 
 | macOS (Terminal) | Windows (PowerShell / Command Prompt) | Linux (Terminal) |
 | --- | --- | --- |
-| `make` | `py -m pip install .` | `make` |
+| `make -C cli` | `py -m pip install .` | `make -C cli` |
 
 Then, on any platform:
 
@@ -14,7 +14,9 @@ Then, on any platform:
 dots setup
 ```
 
-On macOS and Linux, `make` builds and installs the CLI. `python3 -m pip install .` is the equivalent command without make.
+On macOS and Linux, `make -C cli` builds and installs the CLI. You can also run `make` inside `cli/`. `python3 -m pip install .` from the project root is the equivalent command without make.
+
+The Makefile installs into your Python user packages and links `dots` into `~/.local/bin`. It needs no virtual environment and handles Homebrew's externally managed Python restriction for this user-only install. Keep `~/.local/bin` on PATH. Set `BIN_DIR` to choose another command directory.
 
 If Windows has `python` rather than the `py` launcher, use `python -m pip install .`.
 
@@ -33,7 +35,7 @@ A virtual environment is not an application requirement, and there is no separat
 
 If you already use pipx, `pipx install .` is an alternative. Pipx manages a private environment automatically so CLI dependencies do not share your other Python packages.
 
-If pip reports **externally-managed-environment**, that Python distribution blocks direct installation. Use `pipx install .` with pipx installed, or another Python installation that permits pip installs. See the [externally managed environment specification](https://packaging.python.org/en/latest/specifications/externally-managed-environments/). The CLI does not require isolation; your Python distribution may require it.
+If a direct pip command reports **externally-managed-environment**, use `make -C cli` on macOS/Linux for a user-only install. Pipx remains an optional isolated alternative. See the [externally managed environment specification](https://packaging.python.org/en/latest/specifications/externally-managed-environments/).
 
 On macOS, pipx can be installed with `brew install pipx`. If pipx reports its commands are not on PATH, follow its `pipx ensurepath` instruction and open a new Terminal.
 
@@ -54,7 +56,7 @@ If you are already signed into ChatGPT/Codex on this computer, the CLI reuses th
 | `dots setup onboard` | Open guided Dot onboarding in ChatGPT |
 | `dots create NAME` | Create a Dot through the internal account API |
 | `dots doctor` | Full read-only troubleshooting report |
-| `dots serve` | Run the local guide independently |
+| `dots web` | Run the local guide independently |
 
 `auth`, `preflight`, and `setup` do not create Dots. Existing-login reuse and catalog read access have been verified live; cloud creation is still unverified. The API and app-server token handoff are experimental. See [LAUNCHER.md](LAUNCHER.md) for the authentication sources, manual-token alternatives, executable discovery, and full reference.
 
@@ -62,7 +64,7 @@ Account commands include `list`, `use`, `show`, `activity`, `tasks`, `pause`, `r
 
 For recovery when catalog discovery is broken, use `dots show DOT_ID --by-id`. The same option works with `use`, `activity`, `tasks`, `room`, `pause`, and `resume`. `dots create NAME --first` or `--additional` skips the creation catalog lookup.
 
-An installed release uses `~/Dots` as its workspace. `dots setup onboard`, `dots serve`, and prompt-launch commands initialize missing workspace documents without overwriting existing ones. `dots preflight` checks readiness and current account access without creating files. `dots doctor` provides broader troubleshooting diagnostics. The starter trial requires no separate tracker. Set `DOTS_PROJECT` to use another folder. `DOTS_DATA_HOME` overrides the local settings/history directory. Existing tracker-runtime settings are retained when that runtime is present.
+An installed release uses `~/Dots` as its workspace. `dots setup onboard`, `dots web`, and prompt-launch commands initialize missing workspace documents without overwriting existing ones. `dots preflight` checks readiness and current account access without creating files. `dots doctor` provides broader troubleshooting diagnostics. The starter trial requires no separate tracker. Set `DOTS_PROJECT` to use another folder. `DOTS_DATA_HOME` overrides the local settings/history directory. Existing tracker-runtime settings are retained when that runtime is present.
 
 ## Upgrade or remove
 
@@ -74,7 +76,7 @@ dots update
 
 The command checks for a newer version before installing anything and preserves satisfied dependencies. This works with pip and pipx installations. It reuses uv or pip for one install command; only installations with neither bootstrap pip once. It creates no separate installer environment. Raw installer output is never printed, including on failure; detailed errors go to a private log whose path is shown. Setup starts with this update, then preflight, authentication, and onboarding.
 
-From an updated source checkout, `make` also rebuilds and installs the CLI.
+From an updated source checkout, `make -C cli` also rebuilds and installs the CLI.
 
 Or install a newer shared wheel with `python3 -m pip install --upgrade /path/to/new.whl`.
 

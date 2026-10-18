@@ -14,7 +14,10 @@ from unittest.mock import Mock, patch
 
 from cli.api import ApiError, DotClient, credentials, credential_store
 from cli.browser import main as open_browser
-from cli.cli import Launcher, main
+from cli.main import Launcher, main
+
+
+has = unittest.TestCase.assertIn
 
 
 class AuditRegressions(unittest.TestCase):
@@ -34,7 +37,7 @@ class AuditRegressions(unittest.TestCase):
         client = DotClient('fixture-token', 'fixture-account', opener)
         with self.assertRaises(ApiError) as caught:
             client.create('Research', additional=False)
-        self.assertIn('Outcome unknown', str(caught.exception))
+        has(self, 'Outcome unknown', str(caught.exception))
         self.assertNotIn('fixture-sensitive-fragment', str(caught.exception))
         opener.open.assert_called_once()
 
@@ -116,12 +119,12 @@ class AuditRegressions(unittest.TestCase):
                                 app=base / 'missing.app', platform='darwin')
             self.assertFalse(launcher.local_readiness()['workspace_ready'])
             self.assertFalse(launcher.project.exists())
-            with patch('cli.cli.Launcher', return_value=launcher):
+            with patch('cli.main.Launcher', return_value=launcher):
                 self.assertEqual(self.invoke(['setup', 'onboard'])[0], 0)
             self.assertTrue(launcher.local_readiness()['workspace_ready'])
-            self.assertIn('FIRST-RESULT.md', (launcher.project / '.gitignore').read_text(encoding='utf-8'))
+            has(self, 'FIRST-RESULT.md', (launcher.project / '.gitignore').read_text(encoding='utf-8'))
             prompt = next(p['text'] for p in launcher.presets() if p['id'] == 'local')
-            self.assertIn(str(launcher.project / 'README.md'), prompt)
+            has(self, str(launcher.project / 'README.md'), prompt)
             self.assertNotIn('tracker-factory', prompt)
             (launcher.project / 'README.md').write_text('Keep my project', encoding='utf-8')
             launcher.prepare(prompt)
@@ -137,7 +140,7 @@ class AuditRegressions(unittest.TestCase):
             ignore = (base / '.gitignore').read_text(encoding='utf-8')
             self.assertTrue(ignore.startswith('custom-build/\n'))
             self.assertEqual(ignore.splitlines().count('dots-trials.md'), 1)
-            self.assertIn('FIRST-RESULT.md', ignore.splitlines())
+            has(self, 'FIRST-RESULT.md', ignore.splitlines())
             for name in ('setup.html', 'index.html', 'LAUNCHER.md', 'INSTALL.md'):
                 self.assertTrue((base / name).is_file(), name)
 
@@ -170,11 +173,11 @@ class AuditRegressions(unittest.TestCase):
             with self.subTest(error=type(error).__name__), tempfile.TemporaryDirectory() as directory:
                 base = Path(directory)
                 launcher = Launcher(project=base, runtime=base / 'runtime', runner=Mock(side_effect=error), platform='linux')
-                with patch('cli.cli.Launcher', return_value=launcher):
+                with patch('cli.main.Launcher', return_value=launcher):
                     code, output = self.invoke(['activity', 'one', '--open', '--json'])
                 self.assertEqual(code, 1)
-                self.assertIn('Loaded activity', output)
-                self.assertIn('Activity loaded, but', output)
+                has(self, 'Loaded activity', output)
+                has(self, 'Activity loaded, but', output)
                 self.assertNotIn('Traceback', output)
 
     def test_plaintext_keyring_backend_is_rejected(self):

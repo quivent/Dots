@@ -18,10 +18,7 @@ classifiers = [
 ]
 
 [project.scripts]
-dots = "cli.cli:main"
+dots = "cli.main:main"
 
 [tool.setuptools]
-packages = ["cli", "cli.assets"]
-
-[tool.setuptools.package-data]
-"cli.assets" = ["*.html", "*.md"]
+packages = ["cli"]

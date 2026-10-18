@@ -1,10 +1,10 @@
 # Dots
 
-On macOS or Linux, from this checkout run `make` to build and install the CLI, then `dots setup` to see the setup steps. Run `dots setup run` to execute prerequisites through account discovery. Without make, use `python3 -m pip install .` (Windows: `py -m pip install .`). This installs the `dots` console command and its dependencies. Pipx is an optional isolated alternative. See [INSTALL.md](INSTALL.md) for macOS prerequisites, wheel installation, upgrades, and removal. Run `dots --help` for all commands.
+On macOS or Linux, from this checkout run `make -C cli` to build and install the CLI, then `dots setup` to see the setup steps. You can also run `make` inside `cli/`. Run `dots setup run` to execute prerequisites through account discovery. Without make, use `python3 -m pip install .` (Windows: `py -m pip install .`). This installs the `dots` console command and its dependencies. Pipx is an optional isolated alternative. See [INSTALL.md](INSTALL.md) for macOS prerequisites, wheel installation, upgrades, and removal. Run `dots --help` for all commands.
 
 Start with `dots setup`. Use `dots installation` to list the individual commands without running them. Run `dots` for the grouped command menu. `dots setup` and `dots installation` list all ten operations through profile inspection, including bundled creation work and conditional actions. `dots setup run` runs prerequisites only: update → preflight → auth → list.
 
-Optional local setup desk: run `dots serve`. It opens `http://127.0.0.1:8768/setup.html` with launcher actions, live local checks, and trial-note saving. You can also open [setup.html](setup.html) directly for instructions and copy buttons.
+Optional local setup desk: run `dots web`. It opens `http://127.0.0.1:8768/setup.html` with launcher actions, live local checks, and trial-note saving. You can also open [setup.html](setup.html) directly for instructions and copy buttons.
 
 `dots setup onboard` requests the Dot entry page directly. Complete the introduction there, name the Dot, and use [FIRST-MESSAGE.md](FIRST-MESSAGE.md) for the first trial. [Official setup](https://learn.chatgpt.com/docs/dots/getting-started)
 
@@ -35,7 +35,7 @@ Then send the local-work continuation in [FIRST-MESSAGE.md](FIRST-MESSAGE.md). T
 
 ## Project locations
 
-Installed releases use `~/Dots` as the workspace. Set `DOTS_PROJECT` to choose another folder. `dots setup onboard`, `dots serve`, and prompt-launch commands initialize missing starter documents without replacing existing files. `dots preflight` reports workspace readiness and checks the current connection without changing files. `dots doctor` adds a full troubleshooting report.
+Installed releases use `~/Dots` as the workspace. Set `DOTS_PROJECT` to choose another folder. `dots setup onboard`, `dots web`, and prompt-launch commands initialize missing starter documents without replacing existing files. `dots preflight` reports workspace readiness and checks the current connection without changing files. `dots doctor` adds a full troubleshooting report.
 
 Trial results belong in local `FIRST-RESULT.md`. The guide saves private notes to `dots-trials.md` in the runtime directory, separately from the tracked trial template. Set `DOTS_DATA_HOME` to choose the runtime directory. No separate tracker installation is required.
 

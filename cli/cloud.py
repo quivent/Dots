@@ -6,75 +6,21 @@ import sys
 from .api import ApiError, DotClient, SERVICE, credential_store, credentials, encode_id
 
 
-def add_commands(sub):
-    auth = sub.add_parser('auth', help='Sign in with ChatGPT, reusing an existing login when available',
-        description='With no subcommand, reuse the existing ChatGPT sign-in or start the first-party browser login, '
-        'then verify Dot account access. The CLI never displays tokens or reads browser/session files. '
-        'Explicit tokens are an advanced alternative: DOTS_ACCESS_TOKEN and DOTS_ACCOUNT_ID, '
-        'or auth login --account-id ACCOUNT_ID. OpenAI platform API keys do not provide Dot account access.')
-    actions = auth.add_subparsers(dest='auth_action')
-    login = actions.add_parser('login', help='Sign in with ChatGPT; --account-id selects advanced manual-token input')
-    login.add_argument('--account-id', help='Advanced: validate and save a supplied token for this account ID')
-    login.add_argument('--token-stdin', action='store_true', help='Read token from stdin instead of a hidden prompt')
-    check = actions.add_parser('status', help='Report credential source without displaying secrets')
-    check.add_argument('--check', action='store_true', help='Also test read-only account access')
-    actions.add_parser('logout', help='Remove the CLI credential from the OS store (environment is unaffected)')
-    create = sub.add_parser('create', help='Create a cloud Dot (experimental account API)')
-    create.add_argument('name', nargs='?', help='Dot display name')
-    create.add_argument('--local', action='store_true', help='Save a local pending shortcut and open onboarding instead')
-    create.add_argument('--no-open', action='store_true', help='With --local, save the shortcut without opening onboarding')
-    create.add_argument('--json', action='store_true', help='Print the returned cloud profile as JSON')
-    kind = create.add_mutually_exclusive_group()
-    kind.add_argument('--first', dest='additional', action='store_false', default=None,
-                      help='Create the first Dot without a catalog lookup')
-    kind.add_argument('--additional', dest='additional', action='store_true',
-                      help='Create an additional Dot without a catalog lookup')
-    listing = sub.add_parser('list', help='List account Dots; --local lists saved conversation shortcuts')
-    listing.add_argument('--local', action='store_true', help='Read only the local shortcut registry')
-    listing.add_argument('--json', action='store_true', help='Print machine-readable JSON')
-    use = sub.add_parser('use', help='Select the account’s primary Dot; --local selects a saved shortcut')
-    use.add_argument('name', help='Dot ID or unique name; local shortcut name with --local')
-    use.add_argument('--by-id', action='store_true', help='Treat NAME as a literal Dot ID; skip catalog lookup')
-    use.add_argument('--local', action='store_true', help='Select only the local launcher shortcut')
-    use.add_argument('--json', action='store_true', help='Print the API response as JSON')
-    for command, help_text in [('show', 'Inspect a Dot profile'),
-                                ('activity', 'Read Dot activity from the account'),
-                                ('tasks', 'List tasks or inspect a task by ID'),
-                                ('room', 'Create or recover a Dot messaging room'),
-                                ('pause', 'Request a pause of the Dot runtime'),
-                                ('resume', 'Request resumption of the Dot runtime')]:
-        p = sub.add_parser(command, help=help_text + ' (experimental)')
-        p.add_argument('dot', nargs='?', help='Dot ID or unique name; defaults to the only or primary Dot')
-        p.add_argument('--by-id', action='store_true', help='Treat DOT as a literal ID; skip catalog lookup')
-        p.add_argument('--json', action='store_true', help='Print machine-readable JSON')
-        if command == 'tasks':
-            p.add_argument('--task', help='Inspect one task ID instead of listing tasks')
-        if command == 'activity':
-            p.add_argument('--local', action='store_true', help='Read local launch history instead')
-            p.add_argument('--open', action='store_true', help='Open the Dot activity page after reading it')
-
-
 def output(value, raw=False, title='Dots'):
-    from .ui import console
-    from rich.table import Table
-    from rich.text import Text
+    from .ui import console, show_table
+    from rich.table import Column
     if raw:
         print(json.dumps(value, indent=2, ensure_ascii=False))
     elif isinstance(value, list):
         if not value:
             console.print('No records returned.')
             return
-        table = Table(title=title, box=None)
-        table.add_column('ID', style='green')
-        table.add_column('Name / title')
-        table.add_column('Status')
-        for item in value:
-            if not isinstance(item, dict):
-                raise ApiError('Unexpected record in internal API response. Try --json.')
-            table.add_row(Text(str(item.get('id', item.get('thread_id', '')))),
-                Text(str(item.get('display_name', item.get('title', item.get('name', ''))))),
-                Text(str(item.get('status', item.get('state', '')))))
-        console.print(table)
+        if any(not isinstance(item, dict) for item in value):
+            raise ApiError('Unexpected record in internal API response. Try --json.')
+        show_table((Column('ID', style='green'), 'Name / title', 'Status'),
+                   ((item.get('id', item.get('thread_id', '')),
+                     item.get('display_name', item.get('title', item.get('name', ''))),
+                     item.get('status', item.get('state', ''))) for item in value), title=title)
     else:
         # Render unrecognized profile fields faithfully instead of inventing a schema.
         from rich.json import JSON
@@ -82,7 +28,7 @@ def output(value, raw=False, title='Dots'):
 
 
 def run(args, launcher):
-    """Return an exit code if handled, else None for local launcher commands."""
+    """Execute an account command selected by the command catalog."""
     if args.command == 'auth':
         action = args.auth_action
         if action is None or (action == 'login' and not args.account_id):
@@ -135,8 +81,6 @@ def run(args, launcher):
                 result['verified'] = True
             output(result, True)
         return 0
-    if args.command not in ('list', 'create', 'use', 'show', 'activity', 'tasks', 'pause', 'resume', 'room'):
-        return None
     from .ui import show_list, show_activity
     if getattr(args, 'local', False):
         if getattr(args, 'by_id', False) or getattr(args, 'additional', None) is not None:

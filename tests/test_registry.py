@@ -1,11 +1,12 @@
 import json
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
-from cli.cli import Launcher, PROJECT
+from cli.main import Launcher, PROJECT
 
 
 class RegistryTests(unittest.TestCase):
@@ -60,6 +61,34 @@ class RegistryTests(unittest.TestCase):
             with self.subTest(name=repr(name)), self.assertRaises(ValueError):
                 self.launcher.create(name)
         self.runner.assert_not_called()
+
+    def test_history_failure_leaves_saved_entry_and_does_not_launch(self):
+        with patch.object(self.launcher, 'record', side_effect=OSError('History unavailable')):
+            with self.assertRaisesRegex(OSError, 'History unavailable'):
+                self.launcher.create('research')
+        self.assertEqual(self.launcher.list_dots()[0]['name'], 'research')
+        self.assertEqual(self.launcher.history(), [])
+        self.runner.assert_not_called()
+
+    def test_separate_processes_do_not_overwrite_registry_updates(self):
+        script = ('from cli.main import Launcher; import sys; '
+                  'Launcher(runtime=sys.argv[1]).create(sys.argv[2], no_open=True)')
+        processes = [subprocess.Popen([sys.executable, '-c', script, str(self.runtime), f'Dot {index}'],
+                                     cwd=Path(__file__).resolve().parents[1], stdout=subprocess.PIPE,
+                                     stderr=subprocess.PIPE, text=True)
+                     for index in range(5)]
+        try:
+            for process in processes:
+                stdout, stderr = process.communicate(timeout=15)
+                self.assertEqual(process.returncode, 0, stdout + stderr)
+        finally:
+            for process in processes:
+                if process.poll() is None:
+                    process.kill()
+                process.communicate()
+        self.assertEqual({entry['name'] for entry in self.launcher.list_dots()},
+                         {f'Dot {index}' for index in range(5)})
+        self.assertEqual(len(self.launcher.history()), 5)
 
 
 if __name__ == '__main__':

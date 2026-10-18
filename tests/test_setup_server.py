@@ -10,8 +10,11 @@ import threading
 import unittest
 from unittest.mock import Mock
 
-from cli.cli import Launcher, PROJECT, ASSETS
+from cli.main import Launcher, PROJECT
 from cli.server import SetupServer, serve
+
+
+has = unittest.TestCase.assertIn
 
 
 class SetupServerTests(unittest.TestCase):
@@ -19,9 +22,10 @@ class SetupServerTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.base = Path(self.temp.name)
-        (self.base / 'FIRST-MESSAGE.md').write_text((ASSETS / 'FIRST-MESSAGE.md').read_text(encoding='utf-8'), encoding='utf-8')
+        resources = Launcher(project=self.base)
+        (self.base / 'FIRST-MESSAGE.md').write_text(resources.resource('FIRST-MESSAGE.md').read_text(encoding='utf-8'), encoding='utf-8')
         for name in ('index.html', 'setup.html'):
-            (self.base / name).write_text((ASSETS / name).read_text(encoding='utf-8'), encoding='utf-8')
+            (self.base / name).write_text(resources.resource(name).read_text(encoding='utf-8'), encoding='utf-8')
         (self.base / 'TRIALS.md').write_text('# Existing evidence\n')
         self.runner = Mock(return_value=subprocess.CompletedProcess([], 0, '', ''))
         self.launcher = Launcher(project=self.base, runtime=self.base / 'runtime', runner=self.runner, app=self.base / 'missing.app', platform='darwin')
@@ -51,7 +55,7 @@ class SetupServerTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertFalse(data['result_exists'])
         self.assertFalse(data['app_available'])
-        self.assertIn(str(self.base), data['presets'][1]['text'])
+        has(self, str(self.base), data['presets'][1]['text'])
         (self.base / 'FIRST-RESULT.md').write_text('')
         self.assertFalse(json.loads(self.request('GET', '/api/status')[1])['result_exists'])
         (self.base / 'FIRST-RESULT.md').write_text('Observed output')
@@ -73,7 +77,7 @@ class SetupServerTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertFalse(json.loads(body)['submitted'])
         self.assertEqual(self.runner.call_args_list[0].args[0], ['/usr/bin/pbcopy'])
-        self.assertIn(str(self.base), self.runner.call_args_list[0].kwargs['input'])
+        has(self, str(self.base), self.runner.call_args_list[0].kwargs['input'])
         self.assertEqual(self.runner.call_args_list[1].args[0], ['/usr/bin/open', 'https://chatgpt.com/c/example'])
 
     def test_prepare_falls_back_to_browser_without_desktop_app(self):
@@ -88,7 +92,7 @@ class SetupServerTests(unittest.TestCase):
         self.assertTrue(text.startswith('# Existing evidence\n'))
         self.assertNotIn('Result checked. $(literal) <text>', text)
         private = self.launcher.runtime / 'dots-trials.md'
-        self.assertIn('Result checked. $(literal) <text>', private.read_text(encoding='utf-8'))
+        has(self, 'Result checked. $(literal) <text>', private.read_text(encoding='utf-8'))
         if os.name != 'nt':
             self.assertEqual(private.stat().st_mode & 0o777, 0o600)
         self.assertEqual(self.request('GET', '/runtime/dots-trials.md')[0], 404)
@@ -98,8 +102,8 @@ class SetupServerTests(unittest.TestCase):
         self.post({'action': 'record', 'notes': 'First private result'})
         self.post({'action': 'record', 'notes': 'Second private result'})
         notes = (self.launcher.runtime / 'dots-trials.md').read_text(encoding='utf-8')
-        self.assertIn('First private result', notes)
-        self.assertIn('Second private result', notes)
+        has(self, 'First private result', notes)
+        has(self, 'Second private result', notes)
         self.assertEqual((self.base / 'TRIALS.md').read_text(encoding='utf-8'), '# Existing evidence\n')
 
     def test_symlink_note_target_cannot_be_written(self):
@@ -133,15 +137,15 @@ class SetupServerTests(unittest.TestCase):
         output = io.StringIO()
         with redirect_stdout(output):
             serve(self.launcher, port=self.server.server_port, open_browser=False)
-        self.assertIn('already running', output.getvalue())
+        has(self, 'already running', output.getvalue())
         self.runner.assert_not_called()
 
     def test_static_pages_use_switches_and_have_no_personal_paths(self):
-        setup = (ASSETS / 'setup.html').read_text(encoding='utf-8')
+        setup = self.launcher.resource('setup.html').read_text(encoding='utf-8')
         self.assertEqual(setup.count('role="switch"'), 6)
         self.assertNotIn('type="checkbox"', setup)
         self.assertNotIn('/Users/', setup)
-        self.assertIn('<h1>Set up a Dot</h1>', setup)
+        has(self, '<h1>Set up a Dot</h1>', setup)
 
 
 if __name__ == '__main__':

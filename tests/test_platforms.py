@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from unittest.mock import Mock
 
-from cli.cli import Launcher
+from cli.main import Launcher
 
 
 class WindowsPlanTests(unittest.TestCase):

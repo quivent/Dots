@@ -1,6 +1,5 @@
 """Local Dot launch actions. Opening a conversation never implies a submitted task."""
 from __future__ import annotations
-import argparse
 from contextlib import contextmanager
 from datetime import datetime, timezone
 import json
@@ -10,10 +9,9 @@ import plistlib
 import shutil
 import subprocess
 import sys
+import sysconfig
 import tempfile
 from urllib.parse import urlsplit
-
-from . import __version__
 
 PACKAGE_ROOT = Path(__file__).resolve().parent
 ASSETS = PACKAGE_ROOT / 'assets'
@@ -96,30 +94,36 @@ class Launcher:
         data = self.settings()
         return [dict(**entry, selected=entry['name'] == data['selected'], state='link saved' if entry['url'] else 'setup pending') for entry in data['dots']]
 
+    def _update_registry(self, action, name=None, url=''):
+        with self.locked():
+            data = self.settings()
+            name = name or data['selected'] or 'default'
+            entry = next((e for e in data['dots'] if e['name'].casefold() == name.casefold()), None)
+            if action == 'create' and entry is not None:
+                raise ValueError('That local name already exists. Use dots use NAME or choose another name.')
+            if entry is None:
+                if action == 'use':
+                    raise ValueError('No saved Dot with that name. Run dots list.')
+                entry = dict(name=name, url='')
+                data['dots'].append(entry)
+            if action == 'configure':
+                entry['url'] = url
+            data['selected'] = entry['name']
+            self.save_settings(data)
+            if action == 'create':
+                self.record(dict(time=datetime.now(timezone.utc).isoformat(), action='create', outcome='local_entry_saved', name=name, submitted=False))
+            return entry
+
     def create(self, name=None, no_open=False):
         if name:
             name = self.validate_name(name)
-            with self.locked():
-                data = self.settings()
-                if any(e['name'].casefold() == name.casefold() for e in data['dots']):
-                    raise ValueError('That local name already exists. Use dots use NAME or choose another name.')
-                data['dots'].append(dict(name=name, url=''))
-                data['selected'] = name
-                self.save_settings(data)
-                self.record(dict(time=datetime.now(timezone.utc).isoformat(), action='create', outcome='local_entry_saved', name=name, submitted=False))
+            self._update_registry('create', name)
         if not no_open:
             self.launch('setup')
         return dict(name=name, cloud_created=False, message='Complete onboarding in ChatGPT: open dots, follow the introduction, choose a name. Then attach the conversation URL with dots configure URL' + (' --name ' + repr(name) if name else '') + '.')
 
     def use(self, name):
-        name = self.validate_name(name)
-        with self.locked():
-            data = self.settings()
-            entry = next((e for e in data['dots'] if e['name'].casefold() == name.casefold()), None)
-            if not entry:
-                raise ValueError('No saved Dot with that name. Run dots list.')
-            data['selected'] = entry['name']
-            self.save_settings(data)
+        entry = self._update_registry('use', self.validate_name(name))
         return dict(ok=True, message='Selected ' + entry['name'] + ('.' if entry['url'] else ' (setup pending; attach its conversation URL).'))
 
     @staticmethod
@@ -139,21 +143,12 @@ class Launcher:
         url = self.validate_url(url)
         if name is not None:
             name = self.validate_name(name)
-        with self.locked():
-            data = self.settings()
-            name = name or data['selected'] or 'default'
-            entry = next((e for e in data['dots'] if e['name'].casefold() == name.casefold()), None)
-            if entry is None:
-                entry = dict(name=name, url='')
-                data['dots'].append(entry)
-            entry['url'] = url
-            data['selected'] = entry['name']
-            self.save_settings(data)
+        self._update_registry('configure', name, url)
         return {'ok': True, 'message': 'Dot link saved.' if url else 'Dot link cleared.', 'url': url}
 
     def resource(self, name):
-        local = self.project / name
-        return local if local.is_file() else ASSETS / name
+        shared = SOURCE_ROOT if (SOURCE_ROOT / 'pyproject.toml').is_file() else Path(sysconfig.get_path('data')) / 'share/dots'
+        return next((root / name for root in (self.project, ASSETS, shared) if (root / name).is_file()), ASSETS / name)
 
     def init_project(self):
         self.project.mkdir(parents=True, exist_ok=True)
@@ -161,7 +156,7 @@ class Launcher:
             target = self.project / name
             try:
                 with target.open('x', encoding='utf-8') as f:
-                    f.write((ASSETS / name).read_text(encoding='utf-8'))
+                    f.write(self.resource(name).read_text(encoding='utf-8'))
             except FileExistsError:
                 pass  # Preserve user files and concurrent initialization.
         ignore = self.project / '.gitignore'
@@ -225,17 +220,23 @@ class Launcher:
         result['message'] = 'Prompt copied and ChatGPT opened in your browser. Paste and send in your dot.'
         return result
 
-    def local_readiness(self):
+    def snapshot(self):
+        return dict(url=self.settings()['url'], app_available=self.app_available(),
+                    project=str(self.project), presets=self.presets())
+
+    def result_exists(self):
         result = self.project / 'FIRST-RESULT.md'
-        return dict(project=str(self.project), app_available=self.app_available(),
-                    conversation_saved=bool(self.settings()['url']),
-                    result_exists=result.is_file() and result.stat().st_size > 0,
-                    presets_available=all(p['text'] for p in self.presets()),
+        return result.is_file() and result.stat().st_size > 0
+
+    def local_readiness(self):
+        state = self.snapshot()
+        state['conversation_saved'] = bool(state.pop('url'))
+        state['presets_available'] = all(p['text'] for p in state.pop('presets'))
+        return dict(state, result_exists=self.result_exists(),
                     workspace_ready=all((self.project / name).is_file() for name in ('README.md', 'FIRST-MESSAGE.md')))
 
     def status(self):
-        return dict(url=self.settings()['url'], app_available=self.app_available(), presets=self.presets(),
-                    history=self.history(), project=str(self.project),
+        return dict(self.snapshot(), history=self.history(),
                     delivery='Prompts are copied for you to paste and send. No task is submitted automatically.')
 
     def plan(self, action, prompt='', url=None):
@@ -349,50 +350,11 @@ def main(argv=None):
         for stream in (sys.stdout, sys.stderr):
             if hasattr(stream, 'reconfigure'):
                 stream.reconfigure(encoding='utf-8')
-    from .ui import DotsParser, console, show_preflight, show_doctor
+    from .ui import console, show_preflight, show_doctor
     if '--no-color' in (sys.argv[1:] if argv is None else argv):
         console.no_color=True
-    parser=DotsParser(prog='dots', description='Manage account Dots and local setup tools.')
-    parser.add_argument('--version', action='version', version='dots ' + __version__)
-    parser.add_argument('--no-color', action='store_true', help='Disable terminal colors')
-    sub=parser.add_subparsers(dest='command', metavar='COMMAND')
-    from .cloud import add_commands
-    add_commands(sub)
-    descriptions = {'open': 'Open the saved conversation and optionally copy a prompt',
-                    'app': 'Open the desktop app and optionally copy a prompt',
-                    'copy': 'Copy a prompt to the clipboard',
-                    'run': 'Copy a task and open its conversation (paste and send yourself)'}
-    for name, description in descriptions.items():
-        p=sub.add_parser(name, help=description, description=description)
-        choice=p.add_mutually_exclusive_group()
-        choice.add_argument('--preset',choices=['first','local','followup'])
-        choice.add_argument('--prompt',help='Text to copy; passed as clipboard data, never shell code')
-        p.add_argument('--dry-run',action='store_true',help='Show commands without executing or logging them')
-    for name, help_text in [('status', 'Show launcher settings and recent actions as JSON'),
-                            ('history', 'Show recent local launch outcomes'),
-                            ('folder', 'Open the project in the system file manager'),
-                            ('web', 'Open ChatGPT in a browser'),
-                            ('guide', 'Open the official onboarding instructions')]:
-        sub.add_parser(name, help=help_text)
-    sub.add_parser('update', help='Update this CLI from quivent/Dots on GitHub (main)')
-    installation = sub.add_parser('installation', help='Show the full setup plan')
-    installation.add_argument('--json', action='store_true', help='Print the command list as JSON')
-    setup = sub.add_parser('setup', help='Start here; show the full plan or run prerequisites')
-    setup.add_argument('setup_action', nargs='?', choices=['run', 'onboard'],
-                       help='run: execute prerequisites through account discovery; onboard: open graphical onboarding separately. Omit to list every operation.')
-    setup.add_argument('--json', action='store_true', help='Print the step list or onboarding result as JSON; unavailable with run')
-    preflight = sub.add_parser('preflight', help='Check local readiness and current Dot account access without signing in')
-    preflight.add_argument('--json', action='store_true', help='Print preflight results as JSON')
-    doctor=sub.add_parser('doctor', help='Run full read-only diagnostics for troubleshooting')
-    doctor.add_argument('--json', action='store_true', help='Print the full diagnostic report as JSON')
-    prompt=sub.add_parser('prompt', help='Print a task prompt without opening apps or writing the clipboard')
-    prompt.add_argument('preset', choices=['first','local','followup'], nargs='?', default='first', help='Prompt to print (default: first)')
-    serve = sub.add_parser('serve', help='Open the local setup desk with launcher buttons')
-    serve.add_argument('--port', type=int, default=8768, help='Local HTTP port (default: 8768; 0 selects a free port)')
-    serve.add_argument('--no-open', action='store_true', help='Start the local server without opening a browser')
-    configure=sub.add_parser('configure', help='Save or clear a Dot conversation URL')
-    configure.add_argument('url',help='Paste the conversation URL; empty string clears it')
-    configure.add_argument('--name', help='Name this local conversation shortcut')
+    from .commands import build_parser
+    parser = build_parser()
     args=parser.parse_args(argv); launcher=Launcher()
     if args.no_color:
         console.no_color=True
@@ -400,10 +362,10 @@ def main(argv=None):
         if not args.command:
             parser.print_help()
             return 0
-        if args.command == 'update':
+        if args.handler == 'update':
             from .update import update
             return update()
-        if args.command in ('preflight', 'doctor'):
+        if args.handler == 'diagnostics':
             from . import diagnostics
             result = getattr(diagnostics, args.command)(launcher)
             if args.json:
@@ -412,7 +374,7 @@ def main(argv=None):
                 (show_preflight if args.command == 'preflight' else show_doctor)(result)
             failed = result.get('error') or result['connection'] == 'error' or any(item['state'] == 'error' for item in result.get('diagnostics', []))
             return 1 if failed else 0
-        if args.command in ('setup', 'installation'):
+        if args.handler == 'setup':
             from .workflow import setup_plan, run_setup
             from .ui import show_setup
             setup_action = getattr(args, 'setup_action', None)
@@ -429,19 +391,18 @@ def main(argv=None):
                 return 0
             print(json.dumps(result, indent=2) if args.json else result['message'])
             return 0
-        from .cloud import run as run_cloud
-        cloud_result = run_cloud(args, launcher)
-        if cloud_result is not None:
-            return cloud_result
-        if args.command=='prompt':
+        if args.handler == 'cloud':
+            from .cloud import run
+            return run(args, launcher)
+        if args.handler=='prompt':
             print(next(p['text'] for p in launcher.presets() if p['id']==args.preset))
             return 0
-        if args.command=='serve':
+        if args.handler=='serve':
             from .server import serve
             serve(launcher, port=args.port, open_browser=not args.no_open)
             return 0
-        if args.command=='configure': result=launcher.configure(args.url, args.name)
-        elif args.command in ('status', 'history'): result=getattr(launcher, args.command)()
+        if args.handler=='configure': result=launcher.configure(args.url, args.name)
+        elif args.handler == 'inspect': result=getattr(launcher, args.command)()
         else:
             prompt=getattr(args,'prompt',None) or ''
             if getattr(args,'preset',None): prompt=next(p['text'] for p in launcher.presets() if p['id']==args.preset)

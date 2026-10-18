@@ -5,8 +5,11 @@ import unittest
 from unittest.mock import Mock, patch, call
 
 from rich.console import Console
-from cli.cli import main
+from cli.main import main
 from cli.workflow import run_setup
+
+
+has = unittest.TestCase.assertIn
 
 
 class MenuTests(unittest.TestCase):
@@ -20,27 +23,27 @@ class MenuTests(unittest.TestCase):
                 result = error.code
         return result, stream.getvalue()
 
-    @patch('cli.cli.Launcher')
+    @patch('cli.main.Launcher')
     @patch('cli.cloud.DotClient')
     def test_main_menu_is_grouped_and_side_effect_free(self, client, launcher):
         code, output = self.invoke([])
         self.assertEqual(code, 0)
         self.assertLess(output.index('▸ Setup'), output.index('▸ Dots'))
         self.assertLess(output.index('▸ Dots'), output.index('▸ Manage'))
-        self.assertIn('  ├─ dots setup', output)
-        self.assertIn('dots setup run', output)
+        has(self, '  ├─ dots setup', output)
+        has(self, 'dots setup run', output)
         self.assertLess(output.index('dots setup'), output.index('dots update'))
-        self.assertIn('dots setup onboard', output)
+        has(self, 'dots setup onboard', output)
         client.assert_not_called()
         launcher.return_value.launch.assert_not_called()
 
     def test_colors_and_no_color_are_honored(self):
         _, colored = self.invoke([], color=True)
         _, plain = self.invoke(['--no-color'], color=True)
-        self.assertIn('\x1b[', colored)
+        has(self, '\x1b[', colored)
         self.assertNotIn('\x1b[', plain)
 
-    @patch('cli.cli.Launcher')
+    @patch('cli.main.Launcher')
     @patch('cli.workflow.run_setup')
     def test_wrong_commands_get_consistent_corrections_without_execution(self, run, launcher):
         cases = [
@@ -63,11 +66,11 @@ class MenuTests(unittest.TestCase):
             main(['installation', '--bogus'])
         self.assertEqual(caught.exception.code, 2)
         self.assertEqual(stdout.getvalue(), '')
-        self.assertIn('Error: unrecognized arguments: --bogus', stderr.getvalue())
+        has(self, 'Error: unrecognized arguments: --bogus', stderr.getvalue())
         self.assertEqual(len(stderr.getvalue().splitlines()), 2)
         self.assertNotIn('Usage:', stderr.getvalue())
 
-    @patch('cli.cli.Launcher')
+    @patch('cli.main.Launcher')
     @patch('cli.cloud.DotClient')
     def test_setup_lists_exact_steps_without_executing_them(self, client, launcher):
         code, output = self.invoke(['setup', '--json'])
@@ -84,7 +87,7 @@ class MenuTests(unittest.TestCase):
         launcher.return_value.launch.assert_not_called()
 
     @patch('cli.workflow.run_setup')
-    @patch('cli.cli.Launcher')
+    @patch('cli.main.Launcher')
     @patch('cli.cloud.DotClient')
     def test_installation_matches_setup_without_executing(self, client, launcher, run):
         for suffix in ([], ['--json']):
@@ -93,9 +96,9 @@ class MenuTests(unittest.TestCase):
                 default_code, default_output = self.invoke(['setup', *suffix])
                 self.assertEqual(code, 0)
                 self.assertEqual((code, output), (default_code, default_output))
-                self.assertIn('dots update', output)
-                self.assertIn('dots preflight', output)
-                self.assertIn('dots auth', output)
+                has(self, 'dots update', output)
+                has(self, 'dots preflight', output)
+                has(self, 'dots auth', output)
         run.assert_not_called()
         client.assert_not_called()
         launcher.return_value.launch.assert_not_called()
@@ -119,12 +122,12 @@ class MenuTests(unittest.TestCase):
         with patch('cli.ui.console', Console(file=stream)):
             self.assertEqual(run_setup(execute), 7)
         self.assertEqual(execute.call_count, 2)
-        self.assertIn('stopped at dots preflight', stream.getvalue())
-        self.assertIn('independently', stream.getvalue())
+        has(self, 'stopped at dots preflight', stream.getvalue())
+        has(self, 'independently', stream.getvalue())
 
     @patch('cli.workflow.run_setup')
     def test_interactive_run_rejects_json_before_any_execution(self, run):
         code, output = self.invoke(['setup', 'run', '--json'])
         self.assertEqual(code, 1)
-        self.assertIn('interactive', output)
+        has(self, 'interactive', output)
         run.assert_not_called()

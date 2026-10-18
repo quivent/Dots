@@ -1,12 +1,15 @@
-from contextlib import redirect_stdout
+from contextlib import redirect_stdout, redirect_stderr
 import io
 from pathlib import Path
 import subprocess
 import tempfile
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
-from cli.cli import Launcher, PROJECT, main
+from cli.main import Launcher, PROJECT, main
+
+
+has = unittest.TestCase.assertIn
 
 
 class CliTests(unittest.TestCase):
@@ -37,9 +40,21 @@ class CliTests(unittest.TestCase):
         output = io.StringIO()
         with redirect_stdout(output):
             self.assertEqual(main([]), 0)
-        self.assertIn('usage:', output.getvalue().lower())
-        for command in ['create','list','use','activity','serve','doctor','configure']:
-            self.assertIn(command, output.getvalue())
+        has(self, '▸ Setup', output.getvalue())
+        for command in ['create','list','use','activity','web','doctor','configure']:
+            has(self, command, output.getvalue())
+
+    @patch('cli.server.serve')
+    @patch('cli.main.Launcher')
+    def test_web_runs_local_server_with_its_options(self, launcher, serve):
+        self.assertEqual(main(['web', '--port', '0', '--no-open']), 0)
+        serve.assert_called_once_with(launcher.return_value, port=0, open_browser=False)
+
+    def test_removed_commands_are_not_registered(self):
+        for name in ['serve', 'folder', 'guide']:
+            with self.subTest(command=name), redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as error:
+                main([name])
+            self.assertEqual(error.exception.code, 2)
 
 
 if __name__ == '__main__':

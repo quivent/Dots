@@ -8,7 +8,7 @@ import unittest
 from unittest.mock import Mock, call, patch
 
 from cli.api import ApiError
-from cli.cli import Launcher, main
+from cli.main import Launcher, main
 
 
 class RefactorCompatibilityTests(unittest.TestCase):
@@ -19,7 +19,7 @@ class RefactorCompatibilityTests(unittest.TestCase):
         return result, stream.getvalue()
 
     def test_create_flags_keep_three_distinct_catalog_policies(self):
-        with patch('cli.cli.Launcher'), patch('cli.cloud.run', return_value=0) as dispatch:
+        with patch('cli.main.Launcher'), patch('cli.cloud.run', return_value=0) as dispatch:
             for options, expected in (([], None), (['--first'], False), (['--additional'], True)):
                 with self.subTest(options=options):
                     self.assertEqual(self.invoke(['create', 'Research', *options])[0], 0)

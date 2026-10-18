@@ -23,12 +23,7 @@ class SetupServer(ThreadingHTTPServer):
         self.origin = 'http://' + self.authority
 
     def status(self):
-        launcher = self.launcher
-        result = launcher.project / 'FIRST-RESULT.md'
-        return dict(url=launcher.settings()['url'], app_available=launcher.app_available(),
-                    project=str(launcher.project), presets=launcher.presets(),
-                    result_exists=result.is_file() and result.stat().st_size > 0,
-                    token=self.token)
+        return dict(self.launcher.snapshot(), result_exists=self.launcher.result_exists(), token=self.token)
 
     def action(self, data):
         action = data.get('action')
@@ -151,9 +146,9 @@ def serve(launcher, port=8768, open_browser=True):
             with urllib.request.urlopen(origin + '/api/status', timeout=2) as response:
                 existing = json.load(response)
             if existing.get('project') != str(launcher.project) or not isinstance(existing.get('token'), str):
-                raise ValueError('Another service is using this port. Use dots serve --port 8769.')
+                raise ValueError('Another service is using this port. Use dots web --port 8769.')
         except (OSError, ValueError, urllib.error.URLError) as error:
-            raise ValueError('Port unavailable. Use dots serve --port 8769.') from error
+            raise ValueError('Port unavailable. Use dots web --port 8769.') from error
         print('Dot setup desk already running: ' + origin + '/setup.html', flush=True)
         if open_browser:
             webbrowser.open(origin + '/setup.html')

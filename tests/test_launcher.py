@@ -5,7 +5,10 @@ import subprocess
 import tempfile
 import unittest
 from unittest.mock import Mock
-import cli.cli as dots
+import cli.main as dots
+
+
+has = unittest.TestCase.assertIn
 
 class LauncherTests(unittest.TestCase):
     def setUp(self):
@@ -63,7 +66,7 @@ class LauncherTests(unittest.TestCase):
     def test_presets_come_from_written_project_and_status_does_not_launch(self):
         status=self.launcher.status();self.assertEqual([p['id'] for p in status['presets']],['first','local','followup'])
         self.assertTrue(all(p['text'] for p in status['presets']))
-        self.assertIn(str(dots.PROJECT),status['presets'][1]['text']);self.run.assert_not_called()
+        has(self, str(dots.PROJECT),status['presets'][1]['text']);self.run.assert_not_called()
         self.assertFalse((self.base/'runtime').exists())
 
     def test_setup_guide_is_distinct_from_opening_chatgpt(self):

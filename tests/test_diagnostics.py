@@ -6,7 +6,10 @@ import tempfile
 import unittest
 from unittest.mock import Mock, patch
 
-from cli.cli import Launcher, main
+from cli.main import Launcher, main
+
+
+has = unittest.TestCase.assertIn
 
 
 class DiagnosticsTests(unittest.TestCase):
@@ -18,7 +21,7 @@ class DiagnosticsTests(unittest.TestCase):
             base = Path(directory)
             launcher = Launcher(project=base / 'workspace', runtime=base / 'runtime', runner=Mock())
             out = io.StringIO()
-            with patch('cli.cli.Launcher', return_value=launcher), redirect_stdout(out):
+            with patch('cli.main.Launcher', return_value=launcher), redirect_stdout(out):
                 self.assertEqual(main(['preflight', '--json']), 0)
             data = json.loads(out.getvalue())
             self.assertEqual(data['connection'], 'auth_required')
@@ -39,7 +42,7 @@ class DiagnosticsTests(unittest.TestCase):
             (base / 'dots-launcher.json').write_text('{broken', encoding='utf-8')
             launcher = Launcher(project=base / 'workspace', runtime=base, runner=Mock())
             out = io.StringIO()
-            with patch('cli.cli.Launcher', return_value=launcher), redirect_stdout(out):
+            with patch('cli.main.Launcher', return_value=launcher), redirect_stdout(out):
                 self.assertEqual(main(['doctor', '--json']), 1)
             data = json.loads(out.getvalue())
             self.assertEqual(data['connection'], 'ready')
@@ -57,4 +60,4 @@ class DiagnosticsTests(unittest.TestCase):
         with redirect_stdout(out), redirect_stderr(out), self.assertRaises(SystemExit) as error:
             main(['check'])
         self.assertEqual(error.exception.code, 2)
-        self.assertIn('Unknown command: dots check', out.getvalue())
+        has(self, 'Unknown command: dots check', out.getvalue())
