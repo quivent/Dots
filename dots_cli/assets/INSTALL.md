@@ -21,10 +21,10 @@ If Windows has `python` rather than the `py` launcher, use `python -m pip instal
 Or, if you downloaded the wheel:
 
 ```sh
-python3 -m pip install ./dots_cli-0.2.3-py3-none-any.whl
+python3 -m pip install ./dots_cli-0.2.4-py3-none-any.whl
 ```
 
-On Windows, use `py -m pip install .\dots_cli-0.2.3-py3-none-any.whl` for the wheel.
+On Windows, use `py -m pip install .\dots_cli-0.2.4-py3-none-any.whl` for the wheel.
 
 After installation, run `dots` for the command menu or `dots setup` for the numbered setup plan. Use `dots setup run` to execute the plan. Use `dots --help` for other commands. Pip installs the package, formatting and OS credential-store dependencies, and the `dots` console command.
 A virtual environment is not an application requirement, and there is no separate venv setup step.
@@ -60,7 +60,7 @@ Account commands include `list`, `use`, `show`, `activity`, `tasks`, `pause`, `r
 
 For recovery when catalog discovery is broken, use `dots show DOT_ID --by-id`. The same option works with `use`, `activity`, `tasks`, `room`, `pause`, and `resume`. `dots create NAME --first` or `--additional` skips the creation catalog lookup.
 
-An installed release uses `~/Dots` as its workspace. `dots serve` initializes missing workspace documents without overwriting existing ones. Set `DOTS_PROJECT` to use another folder. `DOTS_DATA_HOME` overrides the local settings/history directory. Existing tracker-runtime settings are retained when that runtime is present.
+An installed release uses `~/Dots` as its workspace. `dots setup onboard`, `dots serve`, and prompt-launch commands initialize missing workspace documents without overwriting existing ones. `dots doctor` checks readiness without creating files. The starter trial requires no separate tracker. Set `DOTS_PROJECT` to use another folder. `DOTS_DATA_HOME` overrides the local settings/history directory. Existing tracker-runtime settings are retained when that runtime is present.
 
 ## Upgrade or remove
 
@@ -78,7 +78,7 @@ python3 -m pip uninstall dots-cli
 
 If installed through pipx instead, update with `pipx install --force .` and remove with `pipx uninstall dots-cli`.
 
-Uninstall removes the application, not workspace files or saved launcher state.
+Uninstall removes the application, not workspace files, private trial notes, or saved launcher state.
 
 ## Help and output
 

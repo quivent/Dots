@@ -8,8 +8,9 @@ from __future__ import annotations
 import json
 import os
 import socket
+from http.client import HTTPException
 from urllib.error import HTTPError, URLError
-from urllib.parse import quote, urlencode
+from urllib.parse import quote, urlencode, unquote
 from urllib.request import Request, build_opener, HTTPRedirectHandler
 
 BASE_URL = 'https://chatgpt.com/backend-api'
@@ -61,23 +62,36 @@ class SecureStore:
         return self._call('delete_password', *args)
 
 
-def credentials():
+def valid_credential(value):
+    return isinstance(value, str) and bool(value) and all(33 <= ord(c) <= 126 for c in value)
+
+
+def credentials(*, ignore_saved=False):
     token, account = os.environ.get('DOTS_ACCESS_TOKEN', ''), os.environ.get('DOTS_ACCOUNT_ID', '')
     if token:
         return token, account, 'environment'
-    try:
-        saved = credential_store().get_password(SERVICE, 'account')
-        if saved:
-            data = json.loads(saved)
-            return data['token'], account or data['account_id'], 'OS credential store'
-    except (ImportError, ApiError, ValueError, KeyError):
-        pass
+    if not ignore_saved:
+        try:
+            saved = credential_store().get_password(SERVICE, 'account')
+            if saved:
+                data = json.loads(saved)
+                if isinstance(data, dict) and valid_credential(data.get('token')) and valid_credential(data.get('account_id')):
+                    return data['token'], account or data['account_id'], 'OS credential store'
+        except (ImportError, ApiError, ValueError, TypeError):
+            pass
     from .auth import AuthUnavailable, existing_credentials
     try:
         token, existing_account = existing_credentials()
         return token, account or existing_account, 'existing ChatGPT sign-in'
     except AuthUnavailable:
         return '', account, 'none'
+
+
+def encode_id(identifier, label='Dot'):
+    if (not isinstance(identifier, str) or not identifier.strip() or not identifier.isprintable()
+            or any(part in ('.', '..') for part in unquote(identifier).replace('\\', '/').split('/'))):
+        raise ApiError('Use a valid ' + label + ' ID; dot path segments are not allowed.')
+    return quote(identifier, safe='')
 
 
 class DotClient:
@@ -91,7 +105,7 @@ class DotClient:
     def request(self, method, path, body=None, query=None):
         if not self.token or not self.account_id:
             raise ApiError('No usable ChatGPT sign-in found. Run dots auth to sign in, then dots check. Run dots auth --help for explicit credential alternatives. An OpenAI API key does not provide Dot account access.')
-        if not isinstance(self.token, str) or not isinstance(self.account_id, str) or not (self.token + self.account_id).isascii() or any(c in self.token + self.account_id for c in '\r\n\0'):
+        if not valid_credential(self.token) or not valid_credential(self.account_id):
             raise ApiError('Invalid account credential.')
         url = BASE_URL + path + ('?' + urlencode(query) if query else '')
         payload = json.dumps(body).encode('utf-8') if body is not None else None
@@ -99,7 +113,7 @@ class DotClient:
             'Authorization': 'Bearer ' + self.token,
             'ChatGPT-Account-Id': self.account_id,
             'Accept': 'application/json', 'Content-Type': 'application/json',
-            'User-Agent': 'dots-cli/0.2.3',
+            'User-Agent': 'dots-cli/0.2.4',
         })
         try:
             with self.opener.open(request, timeout=540 if method == 'POST' and path == '/tbo' else 30) as response:
@@ -117,18 +131,18 @@ class DotClient:
             if method != 'GET' and error.code >= 500:
                 message += ' Outcome unknown; inspect dots list/activity before repeating the command.'
             raise ApiError(f'{message} (HTTP {error.code})', status=error.code) from None
-        except (URLError, TimeoutError, socket.timeout, OSError):
+        except (URLError, TimeoutError, socket.timeout, OSError, HTTPException):
             suffix = ' Outcome unknown; inspect dots list/activity before repeating the command.' if method != 'GET' else ''
             raise ApiError('Could not reach the Dot API.' + suffix) from None
         except (ValueError, UnicodeError):
             suffix = ' The write may have succeeded; check dots list/activity before repeating it.' if method != 'GET' else ''
             raise ApiError('Unexpected response from the internal Dot API.' + suffix) from None
 
+    component = staticmethod(encode_id)
+
     @staticmethod
     def path(dot_id):
-        if not dot_id or not isinstance(dot_id, str) or not dot_id.isprintable():
-            raise ApiError('Use a Dot ID from dots list.')
-        return '/tbo/' + quote(dot_id, safe='')
+        return '/tbo/' + DotClient.component(dot_id)
 
     def pages(self, path, limit=25, catalog=False):
         items, cursor, seen = [], '', set()
@@ -140,7 +154,7 @@ class DotClient:
                 query['include_room_preview'] = 'false'
             page = self.request('GET', path, query=query)
             key = 'items' if catalog else 'data'
-            if not isinstance(page, dict) or not isinstance(page.get(key), list):
+            if not isinstance(page, dict) or not isinstance(page.get(key), list) or not all(isinstance(item, dict) for item in page[key]):
                 raise ApiError('Unexpected collection response from the internal Dot API.')
             items.extend(page[key])
             cursor = page.get('cursor') if catalog else page.get('next_cursor', page.get('cursor'))

@@ -2,6 +2,7 @@
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
+import os
 from pathlib import Path
 import secrets
 import subprocess
@@ -38,12 +39,18 @@ class SetupServer(ThreadingHTTPServer):
             notes = data.get('notes', '')
             if not isinstance(notes, str) or not notes.strip() or len(notes) > 12000:
                 raise ValueError('Enter trial notes (up to 12,000 characters).')
-            # One explicit click appends one dated entry. Preserve all existing trials.
+            # Personal notes stay outside tracked project documents.
             with launcher.locked():
-                launcher.project.mkdir(parents=True, exist_ok=True)
-                with (launcher.project / 'TRIALS.md').open('a', encoding='utf-8') as f:
+                notes_path = launcher.runtime / 'dots-trials.md'
+                if notes_path.is_symlink():
+                    raise ValueError('Private notes file cannot be a symlink.')
+                flags = os.O_WRONLY | os.O_CREAT | os.O_APPEND | getattr(os, 'O_NOFOLLOW', 0)
+                fd = os.open(notes_path, flags, 0o600)
+                with os.fdopen(fd, 'a', encoding='utf-8') as f:
+                    if os.name != 'nt':
+                        os.fchmod(f.fileno(), 0o600)
                     f.write('\n## Local setup note — ' + datetime.now(timezone.utc).isoformat() + '\n\n' + notes.strip() + '\n')
-            return dict(ok=True, message='Notes appended to TRIALS.md.')
+            return dict(ok=True, message='Notes saved privately in ' + str(notes_path) + '.')
         if action == 'prepare':
             preset = data.get('preset')
             if preset not in ('first', 'local', 'followup'):

@@ -19,7 +19,7 @@ class WindowsPlanTests(unittest.TestCase):
 
     def test_setup_and_saved_conversation_use_browser_without_unix_commands(self):
         self.launcher.launch('setup')
-        self.assertEqual(self.runner.call_args.args[0], [sys.executable, '-m', 'webbrowser', '-t', 'https://chatgpt.com/dots'])
+        self.assertEqual(self.runner.call_args.args[0], [sys.executable, '-m', 'dots_cli.browser', 'https://chatgpt.com/dots'])
         self.launcher.configure('https://chatgpt.com/c/test?one=1&two=2')
         self.launcher.launch('dot')
         self.assertEqual(self.runner.call_args.args[0][-1], 'https://chatgpt.com/c/test?one=1&two=2')

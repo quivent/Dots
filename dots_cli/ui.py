@@ -136,6 +136,7 @@ def show_doctor(data):
     table.add_row('Project', Text(data['project']))
     table.add_row('ChatGPT app', 'Installed' if data['app_available'] else 'Not found; browser fallback available')
     table.add_row('Conversation', 'Link saved' if data['conversation_saved'] else 'No saved link')
+    table.add_row('Workspace', 'Ready' if data.get('workspace_ready') else 'Not initialized; use dots setup onboard')
     table.add_row('Prompts', 'Ready' if data['presets_available'] else 'Missing')
     table.add_row('FIRST-RESULT.md', 'Nonempty file found' if data['result_exists'] else 'Not found or empty')
     console.print(table)

@@ -2,6 +2,7 @@ from contextlib import redirect_stdout
 import io
 import http.client
 import json
+import os
 from pathlib import Path
 import subprocess
 import tempfile
@@ -85,8 +86,40 @@ class SetupServerTests(unittest.TestCase):
         self.assertEqual(self.post({'action': 'record', 'notes': 'Result checked. $(literal) <text>'})[0], 200)
         text = (self.base / 'TRIALS.md').read_text(encoding='utf-8')
         self.assertTrue(text.startswith('# Existing evidence\n'))
-        self.assertIn('Result checked. $(literal) <text>', text)
+        self.assertNotIn('Result checked. $(literal) <text>', text)
+        private = self.launcher.runtime / 'dots-trials.md'
+        self.assertIn('Result checked. $(literal) <text>', private.read_text(encoding='utf-8'))
+        if os.name != 'nt':
+            self.assertEqual(private.stat().st_mode & 0o777, 0o600)
+        self.assertEqual(self.request('GET', '/runtime/dots-trials.md')[0], 404)
         self.runner.assert_not_called()
+
+    def test_private_notes_append_without_changing_tracked_template(self):
+        self.post({'action': 'record', 'notes': 'First private result'})
+        self.post({'action': 'record', 'notes': 'Second private result'})
+        notes = (self.launcher.runtime / 'dots-trials.md').read_text(encoding='utf-8')
+        self.assertIn('First private result', notes)
+        self.assertIn('Second private result', notes)
+        self.assertEqual((self.base / 'TRIALS.md').read_text(encoding='utf-8'), '# Existing evidence\n')
+
+    def test_symlink_note_target_cannot_be_written(self):
+        self.launcher.runtime.mkdir()
+        target = self.base / 'unrelated.txt'
+        target.write_text('Keep this file', encoding='utf-8')
+        try:
+            (self.launcher.runtime / 'dots-trials.md').symlink_to(target)
+        except (OSError, NotImplementedError):
+            self.skipTest('Symlink creation is unavailable on this platform.')
+        self.assertEqual(self.post({'action': 'record', 'notes': 'Unwanted change'})[0], 400)
+        self.assertEqual(target.read_text(encoding='utf-8'), 'Keep this file')
+
+    def test_static_symlink_target_is_not_served(self):
+        (self.base / 'setup.html').unlink()
+        try:
+            (self.base / 'setup.html').symlink_to(self.base / 'TRIALS.md')
+        except (OSError, NotImplementedError):
+            self.skipTest('Symlink creation is unavailable on this platform.')
+        self.assertEqual(self.request('GET', '/setup.html')[0], 403)
 
     def test_only_declared_files_and_actions_are_available(self):
         for path in ('/.git/config', '/dots_launcher.py', '/../FIRST-MESSAGE.md', '/runtime/dots-launcher.json'):

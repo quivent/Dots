@@ -18,7 +18,7 @@ from . import __version__
 PACKAGE_ROOT = Path(__file__).resolve().parent
 ASSETS = PACKAGE_ROOT / 'assets'
 SOURCE_ROOT = PACKAGE_ROOT.parent
-PROJECT = SOURCE_ROOT if (SOURCE_ROOT / 'pyproject.toml').is_file() else Path(os.environ.get('DOTS_PROJECT', str(Path.home() / 'Dots'))).expanduser().resolve()
+PROJECT = Path(os.environ.get('DOTS_PROJECT', str(SOURCE_ROOT if (SOURCE_ROOT / 'pyproject.toml').is_file() else Path.home() / 'Dots'))).expanduser().resolve()
 TRACKER_RUNTIME = Path.home() / 'tracker-factory/trackers/dots/runtime'
 DEFAULT_RUNTIME = Path(os.environ.get('LOCALAPPDATA', str(Path.home() / 'AppData/Local'))) / 'Dots/runtime' if os.name == 'nt' else Path.home() / '.local/share/dots/runtime'
 RUNTIME = Path(os.environ.get('DOTS_DATA_HOME', str(TRACKER_RUNTIME if TRACKER_RUNTIME.is_dir() else DEFAULT_RUNTIME))).expanduser()
@@ -157,11 +157,25 @@ class Launcher:
 
     def init_project(self):
         self.project.mkdir(parents=True, exist_ok=True)
-        for name in ('README.md', 'FIRST-MESSAGE.md', 'TRIALS.md'):
+        for name in ('README.md', 'FIRST-MESSAGE.md', 'TRIALS.md', 'INSTALL.md', 'LAUNCHER.md', 'index.html', 'setup.html'):
             target = self.project / name
-            if not target.exists():
+            try:
                 with target.open('x', encoding='utf-8') as f:
                     f.write((ASSETS / name).read_text(encoding='utf-8'))
+            except FileExistsError:
+                pass  # Preserve user files and concurrent initialization.
+        ignore = self.project / '.gitignore'
+        if ignore.is_symlink():
+            raise ValueError('Workspace .gitignore cannot be a symlink.')
+        try:
+            existing = ignore.read_text(encoding='utf-8')
+        except FileNotFoundError:
+            existing = ''
+        rules = ('.env', '.env.*', 'FIRST-RESULT.md', 'dots-trials.md', 'runtime/')
+        missing = [rule for rule in rules if rule not in existing.splitlines()]
+        if missing:
+            with ignore.open('a', encoding='utf-8') as f:
+                f.write(('\n' if existing and not existing.endswith('\n') else '') + '\n'.join(missing) + '\n')
 
     def presets(self):
         text = self.resource('FIRST-MESSAGE.md').read_text(encoding='utf-8')
@@ -169,7 +183,7 @@ class Launcher:
         if not separator:
             first, _, rest = text.partition('## After connecting this Mac')
         local = rest.split('## Record what happened')[0]
-        quote = lambda value: '\n'.join(line[2:] for line in value.splitlines() if line.startswith('> ')).replace('~/Dots', str(self.project)).replace('~/tracker-factory', str(Path.home() / 'tracker-factory'))
+        quote = lambda value: '\n'.join(line[2:] for line in value.splitlines() if line.startswith('> ')).replace('~/Dots', str(self.project))
         return [dict(id='first', label='First conversation', text=quote(first)),
                 dict(id='local', label='A task in this folder', text=quote(local)),
                 dict(id='followup', label='Continue our work', text='Pick up our Dots evaluation. Tell me what actually finished, what remains untested, and the single most useful next step. Use the existing work and keep the reply concise.')]
@@ -198,6 +212,8 @@ class Launcher:
 
     def prepare(self, prompt, dry_run=False):
         """Copy a prompt and open the saved conversation, app, or web fallback."""
+        if not dry_run:
+            self.init_project()
         if self.settings()['url']:
             return self.launch('dot', prompt, dry_run=dry_run)
         if self.app_available():
@@ -214,14 +230,15 @@ class Launcher:
         return dict(project=str(self.project), app_available=self.app_available(),
                     conversation_saved=bool(self.settings()['url']),
                     result_exists=result.is_file() and result.stat().st_size > 0,
-                    presets_available=all(p['text'] for p in self.presets()))
+                    presets_available=all(p['text'] for p in self.presets()),
+                    workspace_ready=all((self.project / name).is_file() for name in ('README.md', 'FIRST-MESSAGE.md')))
 
     def status(self):
         return dict(url=self.settings()['url'], app_available=self.app_available(), presets=self.presets(),
                     history=self.history(), project=str(self.project),
                     delivery='Prompts are copied for you to paste and send. No task is submitted automatically.')
 
-    def plan(self, action, prompt=''):
+    def plan(self, action, prompt='', url=None):
         if not isinstance(prompt, str) or len(prompt) > MAX_PROMPT or '\0' in prompt:
             raise ValueError(f'Use a text prompt of at most {MAX_PROMPT} characters.')
         commands=[]
@@ -240,7 +257,17 @@ class Launcher:
             if not prompt.strip(): raise ValueError('Write or select a prompt to copy.')
             commands.append(self.clipboard_command(prompt))
         elif action == 'setup':
-            commands.append({'argv': ['/usr/bin/open', '-a', str(self.app), 'codex://dots']} if self.platform == 'darwin' and self.app_available() else self.url_command('codex://dots') if self.app_available() else self.url_command('https://chatgpt.com/dots'))
+            if self.app_available():
+                command = {'argv': ['/usr/bin/open', '-a', str(self.app), 'codex://dots']} if self.platform == 'darwin' else self.url_command('codex://dots')
+                command['fallback_argv'] = self.url_command('https://chatgpt.com/dots')['argv']
+                commands.append(command)
+            else:
+                commands.append(self.url_command('https://chatgpt.com/dots'))
+        elif action == 'activity':
+            target = self.validate_url(url)
+            if not target:
+                raise ValueError('A Dot activity URL is required.')
+            commands.append(self.url_command(target))
         elif action == 'web':
             commands.append(self.url_command('https://chatgpt.com/'))
         elif action == 'guide':
@@ -253,7 +280,7 @@ class Launcher:
         return commands
 
     def url_command(self, url):
-        return {'argv': ['/usr/bin/open', url] if self.platform == 'darwin' else [sys.executable, '-m', 'webbrowser', '-t', url]}
+        return {'argv': ['/usr/bin/open', url] if self.platform == 'darwin' else [sys.executable, '-m', 'dots_cli.browser', url]}
 
     def app_command(self):
         return {'argv': ['/usr/bin/open', '-a', str(self.app)] if self.platform == 'darwin' else [str(self.app)]}
@@ -273,17 +300,28 @@ class Launcher:
             raise ValueError('No clipboard tool found. Use dots prompt PRESET to print the text, or install wl-copy/xclip on Linux.')
         return dict(argv=argv, input=prompt, clipboard=True)
 
-    def launch(self, action, prompt='', dry_run=False):
-        commands=self.plan(action,prompt)
+    def launch(self, action, prompt='', dry_run=False, url=None):
+        commands=self.plan(action,prompt,url)
         if dry_run: return {'dry_run': True, 'commands': commands, 'submitted': False}
         copied=False
         with self.locked():
             try:
+                if action == 'setup' or prompt.strip():
+                    self.init_project()
                 for command in commands:
-                    result=self.runner(command['argv'], input=command.get('input'), text=True, encoding='utf-8', capture_output=True, timeout=15)
-                    if result.returncode: raise ValueError('Could not complete the launch. Check that the app, clipboard tool, or browser is available.')
+                    try:
+                        result = self.runner(command['argv'], input=command.get('input'), text=True, encoding='utf-8', capture_output=True, timeout=15)
+                    except (OSError, subprocess.SubprocessError):
+                        if not command.get('fallback_argv'):
+                            raise
+                        result = self.runner(command['fallback_argv'], text=True, encoding='utf-8', capture_output=True, timeout=15)
+                    else:
+                        if result.returncode and command.get('fallback_argv'):
+                            result = self.runner(command['fallback_argv'], text=True, encoding='utf-8', capture_output=True, timeout=15)
+                    if result.returncode:
+                        raise ValueError('Could not complete the launch. Check that the app, clipboard tool, or browser is available.')
                     copied |= command.get('clipboard', False)
-            except (OSError, subprocess.TimeoutExpired, ValueError) as error:
+            except (OSError, subprocess.SubprocessError, ValueError) as error:
                 record=dict(time=datetime.now(timezone.utc).isoformat(), action=action, outcome='failed', copied=copied, submitted=False)
                 self.record(record)
                 raise ValueError(('Prompt was copied, but the launch failed. ' if copied else '') + str(error)) from error
@@ -291,6 +329,7 @@ class Launcher:
                       'app':'ChatGPT launch requested.' + (' Open your Dot, then paste and send the copied prompt.' if copied else ''),
                       'copy':'Prompt copied. Paste it into your Dot and send.',
                       'setup':'Dot onboarding launch requested.',
+                      'activity':'Dot activity page launch requested.',
                       'web':'ChatGPT opened in your browser. Choose dots to begin setup.',
                       'guide':'Official setup guide opened.', 'folder':'Project folder opened.'}
             record=dict(time=datetime.now(timezone.utc).isoformat(), action=action, outcome='copied' if action=='copy' else 'launch_requested', copied=copied, submitted=False)

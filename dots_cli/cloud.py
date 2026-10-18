@@ -3,7 +3,7 @@ import getpass
 import json
 import sys
 
-from .api import ApiError, DotClient, SERVICE, credential_store, credentials
+from .api import ApiError, DotClient, SERVICE, credential_store, credentials, encode_id
 
 
 def add_commands(sub):
@@ -95,14 +95,30 @@ def run(args, launcher):
             if not token or not account:
                 token, account = sign_in()
                 source = 'ChatGPT sign-in'
+            rejected_saved = source == 'OS credential store'
             try:
                 DotClient(token, account).list()
             except ApiError as error:
-                if error.status != 401 or source != 'existing ChatGPT sign-in':
+                if error.status != 401 or source not in ('existing ChatGPT sign-in', 'OS credential store'):
                     raise
-                token, account = sign_in()
-                source = 'ChatGPT sign-in'
-                DotClient(token, account).list()
+                if rejected_saved:
+                    token, account, source = credentials(ignore_saved=True)
+                else:
+                    token, account, source = '', '', 'none'
+                if not token or not account:
+                    token, account = sign_in()
+                    source = 'ChatGPT sign-in'
+                try:
+                    DotClient(token, account).list()
+                except ApiError as retry_error:
+                    if retry_error.status != 401 or source != 'existing ChatGPT sign-in':
+                        raise
+                    token, account = sign_in()
+                    source = 'ChatGPT sign-in'
+                    DotClient(token, account).list()
+                if rejected_saved:
+                    # Remove the rejected override only after a replacement login works.
+                    credential_store().delete_password(SERVICE, 'account')
             print('Authenticated with ChatGPT. Dot account access verified (' + source + ').')
         elif action == 'login':
             store = credential_store()
@@ -155,7 +171,7 @@ def run(args, launcher):
         if args.no_open:
             raise ApiError('--no-open applies to --local only. Cloud creation does not launch a browser.')
         if not args.name:
-            raise ApiError('Supply a name: dots create NAME. For graphical onboarding, run dots setup.')
+            raise ApiError('Supply a name: dots create NAME. For graphical onboarding, run dots setup onboard.')
         name = launcher.validate_name(args.name)
         output(client.create(name, additional=args.additional), args.json)
     else:
@@ -170,8 +186,7 @@ def run(args, launcher):
             result = client.request('GET', path)
         elif args.command in ('activity', 'tasks'):
             if args.command == 'tasks' and args.task:
-                from urllib.parse import quote
-                result = client.request('GET', path + '/tasks/' + quote(args.task, safe=''))
+                result = client.request('GET', path + '/tasks/' + encode_id(args.task, 'task'))
             else:
                 result = client.pages(path + '/' + args.command, limit=5 if args.command == 'activity' else 25)
         elif args.command == 'room':
@@ -181,5 +196,8 @@ def run(args, launcher):
         output(result, args.json, args.command.capitalize())
         if args.command == 'activity' and args.open:
             # This is navigation, not task submission or evidence that a task ran.
-            launcher.runner(launcher.url_command('https://chatgpt.com/dots/' + client.path(dot_id).split('/')[-1])['argv'], check=True, timeout=15)
+            try:
+                launcher.launch('activity', url='https://chatgpt.com/dots/' + encode_id(dot_id))
+            except ValueError as error:
+                raise ApiError('Activity loaded, but its page could not be opened. ' + str(error)) from None
     return 0

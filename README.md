@@ -29,20 +29,16 @@ The same dot is accessible across supported devices. Mobile web is unsupported. 
 
 ## Let it work with this folder
 
-In the ChatGPT desktop app, open the dot’s profile → **Computers** → **Your computer** → **Allow access** and confirm. Keep this Mac online with ChatGPT open while it works locally. Its cloud computer is separate; existing Codex access or Work Sync does not grant the dot access automatically. [Computer connection](https://learn.chatgpt.com/docs/dots/computers-and-apps)
+In the ChatGPT desktop app, open the dot’s profile → **Computers** → **Your computer** → **Allow access** and confirm. Keep this computer online with ChatGPT open while it works locally. Its cloud computer is separate; existing Codex access or Work Sync does not grant the dot access automatically. [Computer connection](https://learn.chatgpt.com/docs/dots/computers-and-apps)
 
 Then send the local-work continuation in [FIRST-MESSAGE.md](FIRST-MESSAGE.md). That request identifies the actual folders and keeps the first trial small.
 
 ## Project locations
 
-| Content | Location |
-|---|---|
-| Research, prompts and observed results | `~/Dots` |
-| Tracker configuration, tasks, checks and runtime | `~/tracker-factory/trackers/dots` |
-| Open or serve this tracker | `track ~/Dots` |
+Installed releases use `~/Dots` as the workspace. Set `DOTS_PROJECT` to choose another folder. `dots setup onboard`, `dots serve`, and prompt-launch commands initialize missing starter documents without replacing existing files. `dots doctor` reports workspace readiness without changing files.
 
-Use Tracker Desk’s **Dots** entry to view the work. The registry records its central location; no project-local tracker is needed.
+Trial results belong in local `FIRST-RESULT.md`. The guide saves private notes to `dots-trials.md` in the runtime directory, separately from the tracked trial template. Set `DOTS_DATA_HOME` to choose the runtime directory. No separate tracker installation is required.
 
 ## Evidence boundary
 
-Official documentation checked **2026-10-17**. No Dot conversation, call, shortcut or local-computer connection has been tested on this account. Record actual results in [TRIALS.md](TRIALS.md); documentation is not evidence of a successful trial. No recurring work was requested or configured.
+Official documentation checked **2026-10-17**. No Dot conversation, call, shortcut or local-computer connection has been tested on this account. Record actual results in local `FIRST-RESULT.md` or the guide’s private notes file; documentation is not evidence of a successful trial. No recurring work was requested or configured.

@@ -38,7 +38,7 @@ Normally, use `dots auth`. Explicit credentials take precedence: `DOTS_ACCESS_TO
 
 `dots auth login --account-id ACCOUNT_ID` validates an existing account token from a hidden prompt before saving it in macOS Keychain, Windows Credential Manager, or supported Linux Secret Service/KWallet. `--token-stdin` reads one token line from a secret manager or authorized automation. No plaintext fallback. Avoid putting tokens in command arguments, shell history, or guide notes.
 
-`dots auth status` reports credential source and presence without secrets; `--check` additionally checks account read access. `dots auth logout` removes only this CLI's explicitly saved credential. It does not sign out ChatGPT/Codex or clear environment overrides. Use first-party sign-out controls to end the shared login. Explicit tokens expire and are not automatically refreshed by this CLI.
+`dots auth status` reports credential source and presence without secrets; `--check` additionally checks account read access. `dots auth logout` removes only this CLI's explicitly saved credential. It does not sign out ChatGPT/Codex or clear environment overrides. Use first-party sign-out controls to end the shared login. Explicit tokens expire. If a saved token is rejected, `dots auth` verifies the shared ChatGPT login (or starts sign-in) before removing the rejected saved override. Invalid saved records are ignored. Environment overrides remain explicit and are never silently removed.
 
 ## Cloud commands
 
@@ -95,4 +95,8 @@ These do not require account credentials. The earlier shortcut-only behavior is 
 
 `dots serve` binds to `127.0.0.1:8768`. It serves only allowlisted pages/documents; writes require same-origin checks and a per-process token. Account credentials and cloud control routes are not exposed to the guide server. The guide's switches record manual confirmations, not actual permissions.
 
-The source checkout is the workspace; installed releases default to `~/Dots`. `DOTS_PROJECT` changes the workspace. `DOTS_DATA_HOME` changes local settings/history storage. Existing tracker settings remain supported. `serve` copies missing starter documents without overwriting existing files. History records launch actions, not prompt text. Credentials are stored separately in the OS credential store or supplied through the process environment.
+The source checkout is the workspace; installed releases default to `~/Dots`. `DOTS_PROJECT` changes the workspace. `DOTS_DATA_HOME` changes local settings/history storage. Existing tracker settings remain supported. `setup onboard`, `serve`, and prompt-launch commands create missing starter documents and linked guide files without overwriting existing files; `doctor` and dry runs remain read-only. Starter prompts require no separate tracker installation. History records launch actions, not prompt text. Credentials are stored separately in the OS credential store or supplied through the process environment.
+
+The guide saves entered notes in the private runtime file `dots-trials.md`, created with owner-only permissions on POSIX systems. It never appends them to tracked `TRIALS.md`. That document is a reusable template. Workspace initialization adds missing ignore rules while preserving existing entries. Ignore rules protect new local results and note files; they do not untrack files already committed to an existing repository.
+
+URL launch failures return an error. If the desktop Dot protocol handler fails, onboarding tries the HTTPS route. A successful launch means the request was accepted, not that navigation or onboarding finished. Activity opening uses the same launch/error handling and reports fetched activity separately from navigation failure.
