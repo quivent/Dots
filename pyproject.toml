@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dots-cli"
-version = "0.2.6"
+version = "0.2.7"
 description = "Account management and local setup tools for ChatGPT Dots"
 readme = "README.md"
 requires-python = ">=3.10"

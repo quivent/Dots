@@ -25,7 +25,7 @@ App launch, local tools, authentication, connection checks, creation, and room r
 
 The main screen uses three colored command groups: Setup, Dots, and Manage. `dots` and `dots --help` show the same indented command tree; `dots COMMAND --help` lists options.
 
-The setup plan starts with `dots update`, followed by `dots preflight`, `dots auth`, and `dots setup onboard`. Updates install the latest public `quivent/Dots` main branch into the Python environment running this CLI. An automatic temporary installer supports pip and pipx installations; no manual environment setup is needed. Each runner step starts a fresh CLI process so it uses the updated code.
+The setup plan starts with `dots update`, followed by `dots preflight`, `dots auth`, and `dots setup onboard`. Updates check the available version first and install only a newer CLI, preserving satisfied dependencies. Installation progress stays concise; errors include the final installer details. Updates install the latest public `quivent/Dots` main branch into the Python environment running this CLI. An automatic temporary installer supports pip and pipx installations; no manual environment setup is needed. Each runner step starts a fresh CLI process so it uses the updated code.
 
 The setup plan and runner share one command list. The runner prints each command before executing it and stops on failure, naming the command to retry. Every step remains directly runnable; no saved completion flags or pipeline state block other commands. The final step requests onboarding navigation and does not claim onboarding is complete.
 
