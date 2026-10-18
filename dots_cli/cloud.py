@@ -7,14 +7,14 @@ from .api import ApiError, DotClient, SERVICE, credential_store, credentials
 
 
 def add_commands(sub):
-    auth = sub.add_parser('auth', help='Manage explicit account credentials for experimental cloud access',
-        description='Internal Dot endpoints require a ChatGPT account bearer token and account ID. '
-        'An OpenAI platform API key will not work. No standalone browser OAuth flow has been verified. '
-        'Use an authorized account credential you already hold; this CLI never extracts app sessions. '
-        'Environment alternative: DOTS_ACCESS_TOKEN and DOTS_ACCOUNT_ID.')
+    auth = sub.add_parser('auth', help='Sign in with ChatGPT, reusing an existing login when available',
+        description='With no subcommand, reuse the existing ChatGPT sign-in or start the first-party browser login, '
+        'then verify Dot account access. The CLI never displays tokens or reads browser/session files. '
+        'Explicit tokens are an advanced alternative: DOTS_ACCESS_TOKEN and DOTS_ACCOUNT_ID, '
+        'or auth login --account-id ACCOUNT_ID. OpenAI platform API keys do not provide Dot account access.')
     actions = auth.add_subparsers(dest='auth_action')
-    login = actions.add_parser('login', help='Validate and save an existing account token in the OS credential store')
-    login.add_argument('--account-id', required=True, help='Account/workspace ID associated with the token')
+    login = actions.add_parser('login', help='Sign in with ChatGPT; --account-id selects advanced manual-token input')
+    login.add_argument('--account-id', help='Advanced: validate and save a supplied token for this account ID')
     login.add_argument('--token-stdin', action='store_true', help='Read token from stdin instead of a hidden prompt')
     check = actions.add_parser('status', help='Report credential source without displaying secrets')
     check.add_argument('--check', action='store_true', help='Also test read-only account access')
@@ -85,7 +85,26 @@ def run(args, launcher):
     """Return an exit code if handled, else None for local launcher commands."""
     if args.command == 'auth':
         action = args.auth_action
-        if action == 'login':
+        if action is None or (action == 'login' and not args.account_id):
+            if getattr(args, 'token_stdin', False):
+                raise ApiError('--token-stdin requires --account-id for manual token input.')
+            from .auth import sign_in
+            token, account, source = credentials()
+            if token and not account:
+                raise ApiError('The explicit token is missing its account ID. Set DOTS_ACCOUNT_ID or remove the override to use ChatGPT sign-in.')
+            if not token or not account:
+                token, account = sign_in()
+                source = 'ChatGPT sign-in'
+            try:
+                DotClient(token, account).list()
+            except ApiError as error:
+                if error.status != 401 or source != 'existing ChatGPT sign-in':
+                    raise
+                token, account = sign_in()
+                source = 'ChatGPT sign-in'
+                DotClient(token, account).list()
+            print('Authenticated with ChatGPT. Dot account access verified (' + source + ').')
+        elif action == 'login':
             store = credential_store()
             token = sys.stdin.readline().strip() if args.token_stdin else getpass.getpass('ChatGPT account access token: ').strip()
             if not token:
@@ -97,13 +116,13 @@ def run(args, launcher):
             store = credential_store()
             if store.get_password(SERVICE, 'account'):
                 store.delete_password(SERVICE, 'account')
-            print('Saved CLI credential removed. Environment credentials are unaffected.')
+            print('Saved CLI credential removed. Existing ChatGPT sign-in and environment credentials are unaffected.')
         else:
             token, account, source = credentials()
             result = {'credential_source': source, 'token_present': bool(token), 'account_id_present': bool(account),
                       'api': 'experimental internal Dot API', 'verified': False}
             if getattr(args, 'check', False):
-                result['dot_count'] = len(DotClient().list())
+                result['dot_count'] = len(DotClient(token, account).list())
                 result['verified'] = True
             output(result, True)
         return 0

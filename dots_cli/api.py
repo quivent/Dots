@@ -1,7 +1,7 @@
 """Experimental client for the account-scoped Dot routes observed in ChatGPT.
 
 These are internal routes, not the public /v1/agents API. Never retries writes.
-Credentials are supplied explicitly; browser/app session stores are never read.
+Reuses the local app-server login or explicit credentials; never reads session stores directly.
 """
 from __future__ import annotations
 
@@ -17,7 +17,9 @@ SERVICE = 'dots-cli'
 
 
 class ApiError(ValueError):
-    pass
+    def __init__(self, message, status=None):
+        super().__init__(message)
+        self.status = status
 
 
 class NoRedirect(HTTPRedirectHandler):
@@ -70,7 +72,12 @@ def credentials():
             return data['token'], account or data['account_id'], 'OS credential store'
     except (ImportError, ApiError, ValueError, KeyError):
         pass
-    return '', account, 'none'
+    from .auth import AuthUnavailable, existing_credentials
+    try:
+        token, existing_account = existing_credentials()
+        return token, account or existing_account, 'existing ChatGPT sign-in'
+    except AuthUnavailable:
+        return '', account, 'none'
 
 
 class DotClient:
@@ -83,7 +90,7 @@ class DotClient:
 
     def request(self, method, path, body=None, query=None):
         if not self.token or not self.account_id:
-            raise ApiError('Cloud access requires a ChatGPT account access token and account ID. Run dots auth --help. An OpenAI API key does not provide Dot account access.')
+            raise ApiError('No usable ChatGPT sign-in found. Run dots auth to sign in, then dots check. Run dots auth --help for explicit credential alternatives. An OpenAI API key does not provide Dot account access.')
         if not isinstance(self.token, str) or not isinstance(self.account_id, str) or not (self.token + self.account_id).isascii() or any(c in self.token + self.account_id for c in '\r\n\0'):
             raise ApiError('Invalid account credential.')
         url = BASE_URL + path + ('?' + urlencode(query) if query else '')
@@ -92,7 +99,7 @@ class DotClient:
             'Authorization': 'Bearer ' + self.token,
             'ChatGPT-Account-Id': self.account_id,
             'Accept': 'application/json', 'Content-Type': 'application/json',
-            'User-Agent': 'dots-cli/0.2.0',
+            'User-Agent': 'dots-cli/0.2.1',
         })
         try:
             with self.opener.open(request, timeout=540 if method == 'POST' and path == '/tbo' else 30) as response:
@@ -100,7 +107,7 @@ class DotClient:
                 return json.loads(raw) if raw else {}
         except HTTPError as error:
             error.close()
-            messages = {401: 'Account authorization expired or was rejected. Supply a fresh account credential.',
+            messages = {401: 'Account authorization expired or was rejected. Check your ChatGPT/Codex sign-in, then run dots check.',
                         403: 'Dot access was denied. Check account eligibility, workspace permissions, and credential scope.',
                         404: 'Dot or internal route not found.',
                         409: 'Account state conflict. Check dots list before retrying creation.',
@@ -109,7 +116,7 @@ class DotClient:
             message = messages.get(error.code, 'Internal Dot API request failed.')
             if method != 'GET' and error.code >= 500:
                 message += ' Outcome unknown; inspect dots list/activity before repeating the command.'
-            raise ApiError(f'{message} (HTTP {error.code})') from None
+            raise ApiError(f'{message} (HTTP {error.code})', status=error.code) from None
         except (URLError, TimeoutError, socket.timeout, OSError):
             suffix = ' Outcome unknown; inspect dots list/activity before repeating the command.' if method != 'GET' else ''
             raise ApiError('Could not reach the Dot API.' + suffix) from None

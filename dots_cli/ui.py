@@ -12,7 +12,7 @@ from rich_argparse import RichHelpFormatter
 
 GROUPS = [
     ('Account Dots · experimental API', ['auth', 'create', 'list', 'use', 'show', 'tasks', 'activity', 'pause', 'resume', 'room']),
-    ('Setup & connections', ['setup', 'configure']),
+    ('Setup & connections', ['setup', 'check', 'configure']),
     ('Tasks & activity', ['run', 'open', 'app', 'copy', 'prompt']),
     ('Local tools', ['serve', 'doctor', 'status', 'history', 'folder', 'web', 'guide']),
 ]
@@ -47,9 +47,9 @@ class DotsParser(argparse.ArgumentParser):
         terminal.print('  [green]-h, --help[/green]     Show this help')
         terminal.print('  [green]--version[/green]      Show the installed version')
         terminal.print('  [green]--no-color[/green]     Disable terminal colors')
-        terminal.print(Panel('make\ndots setup\ndots auth status --check\ndots list\ndots create research\ndots activity research\ndots serve', title='Examples', title_align='left', border_style='dim', expand=False))
+        terminal.print(Panel('make\ndots setup\ndots check\ndots list\ndots create research\ndots activity research\ndots serve', title='Examples', title_align='left', border_style='dim', expand=False))
         terminal.print('Use [green]dots COMMAND --help[/green] for every option and argument.\n')
-        terminal.print('[dim]Cloud commands require explicit account credentials: dots auth --help.\nUse --local for saved shortcuts and launcher activity.[/dim]\n')
+        terminal.print('[dim]Cloud commands reuse your existing ChatGPT sign-in. Run dots check.\nUse --local for saved shortcuts and launcher activity.[/dim]\n')
         return output.getvalue()
 
 
@@ -90,4 +90,14 @@ def show_doctor(data):
     table.add_row('Conversation', 'Link saved' if data['conversation_saved'] else 'No saved link')
     table.add_row('Prompts', 'Ready' if data['presets_available'] else 'Missing')
     table.add_row('FIRST-RESULT.md', 'Nonempty file found' if data['result_exists'] else 'Not found or empty')
+    console.print(table)
+
+
+def show_connection(data):
+    table = Table(title='Dot connection', box=None, show_header=False)
+    table.add_column(style='bold')
+    table.add_column()
+    table.add_row('Sign-in', Text(data['credential_source']))
+    table.add_row('Dot account access', 'Verified')
+    table.add_row('Dots', str(data['dot_count']))
     console.print(table)

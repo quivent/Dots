@@ -338,13 +338,10 @@ def main(argv=None):
                             ('web', 'Open ChatGPT in a browser'),
                             ('guide', 'Open the official onboarding instructions')]:
         sub.add_parser(name, help=help_text)
-    setup = sub.add_parser('setup', help='Open Dot onboarding, or run one independent setup step',
-        description='Every step runs independently. check inspects local prerequisites; app launches ChatGPT; '
-        'open targets Dot onboarding; web targets the web route; auth reports credential readiness; '
-        'api makes a read-only list request. None creates a Dot.')
-    setup.add_argument('step', nargs='?', default='open', choices=['open', 'check', 'app', 'web', 'auth', 'api'],
-                       help='Single step to run (default: open)')
-    setup.add_argument('--json', action='store_true', help='Print the step result as JSON')
+    setup = sub.add_parser('setup', help='Open Dot onboarding in ChatGPT')
+    setup.add_argument('--json', action='store_true', help='Print the launch result as JSON')
+    check = sub.add_parser('check', help='Verify existing sign-in and read-only Dot account access')
+    check.add_argument('--json', action='store_true', help='Print connection checks as JSON')
     doctor=sub.add_parser('doctor', help='Check local app, saved conversation, prompts, and result file')
     doctor.add_argument('--json', action='store_true', help='Print local readiness checks as JSON')
     prompt=sub.add_parser('prompt', help='Print a task prompt without opening apps or writing the clipboard')
@@ -362,14 +359,26 @@ def main(argv=None):
         if not args.command:
             parser.print_help()
             return 0
-        if args.command == 'setup':
-            from .setup import run_step
-            result = run_step(args.step, launcher)
+        if args.command == 'check':
+            from .api import DotClient, credentials
+            from .ui import show_connection
+            token, account, source = credentials()
+            if not token or not account:
+                raise ValueError('No usable ChatGPT sign-in found. Run dots auth to sign in, then dots check. See dots auth --help for explicit credential alternatives.')
+            entries = DotClient(token, account).list()
+            result = {'credential_source': source, 'authenticated': True, 'read_access_verified': True,
+                      'dot_count': len(entries), 'write_access_verified': False}
             if args.json:
-                print(json.dumps(result, indent=2, ensure_ascii=False))
+                print(json.dumps(result, indent=2))
             else:
-                from .setup import show_step
-                show_step(result)
+                show_connection(result)
+            return 0
+        if args.command == 'setup':
+            result = launcher.launch('setup')
+            if args.json:
+                print(json.dumps(result, indent=2))
+            else:
+                print(result['message'])
             return 0
         from .cloud import run as run_cloud
         cloud_result = run_cloud(args, launcher)

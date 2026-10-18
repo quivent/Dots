@@ -2,47 +2,37 @@
 
 Run `make` to build and install the CLI, then `dots setup` to open Dot onboarding. Windows: `py -m pip install .`. Linux: `make` also works. Requires Python 3.10+. See [INSTALL.md](INSTALL.md).
 
-## Independent setup steps
+## Sign in, check, or set up
 
-Run any step directly. There is no required sequence, completed-step state, or pipeline that prevents the working parts from running.
-
-| Command | One action | What success establishes |
-|---|---|---|
-| `dots setup check` | Inspect local prerequisites | CLI, app detection, credential presence, local-guide availability; no API call |
-| `dots setup app` | Launch the installed desktop app | Launch request accepted; no navigation or onboarding claim |
-| `dots setup` or `dots setup open` | Request the Dot entry page | Uses `codex://dots` on desktop; `/dots` browser fallback |
-| `dots setup web` | Open `https://chatgpt.com/dots` | Browser launch requested |
-| `dots setup auth` | Inspect CLI credential presence | Presence only; no account access claim |
-| `dots setup api` | Read the account Dot catalog | Read access works; no write access claim |
-| `dots serve` | Start the local guide | Guide works independently of cloud authentication |
-
-Each setup command supports `--json`. Failed API access does not block app launch, the local guide, prompts, or saved shortcuts. Keep the guide server running; Ctrl+C stops it. `--port PORT` and `--no-open` are available on `serve`.
-
-The installed desktop app must support the Dot route and the account must have access. The direct desktop route was found in first-party application source; actual navigation has not been visually verified here. [Official onboarding](https://learn.chatgpt.com/docs/dots/getting-started)
-
-## Account credentials
-
-Cloud commands use **experimental internal ChatGPT routes**, discovered in application version 26.1013.40934. They are not a published Dot API. The default backend URL is confirmed in that application's source; account/workspace routing may differ. No authenticated live call has been verified in this workspace. Source details: [research/dot-protocol.json](research/dot-protocol.json).
-
-An OpenAI platform API key does not supply personal Dot account access. This CLI has no verified standalone browser sign-in flow. It accepts an authorized ChatGPT account access token and the matching account/workspace ID that you already hold; it does not extract desktop/browser sessions. Installing or opening ChatGPT does not sign the CLI in.
-
-To validate and save an existing credential:
-
-```sh
-dots auth login --account-id ACCOUNT_ID
-```
-
-Paste the token into the hidden prompt. It is checked with a read-only catalog request before saving in macOS Keychain, Windows Credential Manager, or a supported Linux Secret Service/KWallet backend. No plaintext fallback. For a secret manager or other authorized automation, `--token-stdin` reads one token line from stdin. Avoid putting tokens in command arguments, shell history, or guide notes.
-
-Alternatively, supply `DOTS_ACCESS_TOKEN` and `DOTS_ACCOUNT_ID` in the process environment. Environment tokens take precedence over saved credentials. Tokens expire; automatic refresh is not implemented.
-
-| Command | Effect |
+| Command | Action |
 |---|---|
-| `dots auth status` | Show credential source and presence, without secrets |
-| `dots auth status --check` | Also verify catalog read access |
-| `dots auth logout` | Remove the CLI's stored credential; environment credentials remain |
+| `dots auth` | Reuse an existing ChatGPT login, or start first-party browser sign-in when missing; then verify Dot account access |
+| `dots check` | Verify the current login and read-only Dot access; never starts a login flow |
+| `dots setup` | Open Dot onboarding in ChatGPT |
+| `dots doctor` | Check local app, prompts, saved conversation, and result file |
+| `dots serve` | Open the local guide independently of cloud access |
 
-If no authorized account credential is available, cloud commands remain blocked. Use graphical onboarding and the independent local commands below. Public API agents are project-scoped and are not a replacement for account Dots. [API agent reference](https://developers.openai.com/api/reference/typescript/resources/beta/subresources/agents/methods/create)
+If you are already signed into ChatGPT/Codex on this computer, Dot commands reuse that login automatically. You do not need to paste a token or run `auth` again. `dots create NAME` uses the same authentication source. `dots check` and `dots setup` accept `--json`.
+
+When no reusable login exists, run `dots auth`. It starts the first-party `codex login` flow and then checks Dot access. This requires a local app-server executable, found through `codex` on PATH or the bundled macOS ChatGPT app. Set `DOTS_CODEX` to its executable if needed. If neither is installed, install ChatGPT/Codex first. No Dot is created by `auth`, `check`, or `setup`.
+
+App launch, local tools, authentication, connection checks, creation, and room repair are independent commands. A failed connection check does not block `dots app`, `dots setup`, `dots doctor`, or `dots serve`.
+
+## Authentication and verification
+
+The local app-server protocol confirms the existing ChatGPT account and hands off a token through its experimental `getAuthStatus` RPC. The token is used in memory; the CLI does not display it, save another copy, or read browser/session credential files. Existing-login reuse and an authenticated `GET /tbo` catalog request were verified on 2026-10-18. Dot creation, initialization, and activity have not yet been verified live. A new browser login is covered by mocked tests; the active login was retained during testing.
+
+Cloud commands use internal ChatGPT routes observed in application version 26.1013.40934, rather than a published Dot API. The local auth handoff is also experimental; app updates can change it. Source details: [research/dot-protocol.json](research/dot-protocol.json). [Official login caching](https://learn.chatgpt.com/docs/auth#login-caching)
+
+`dots setup` uses the observed `codex://dots` desktop route and `/dots` browser fallback. An accepted launch does not establish that onboarding completed. [Official onboarding](https://learn.chatgpt.com/docs/dots/getting-started)
+
+### Advanced credential alternatives
+
+Normally, use `dots auth`. Explicit credentials take precedence: `DOTS_ACCESS_TOKEN` plus `DOTS_ACCOUNT_ID` in the process environment, then a credential saved by this CLI, then the existing app-server login. An OpenAI platform API key does not provide personal Dot access.
+
+`dots auth login --account-id ACCOUNT_ID` validates an existing account token from a hidden prompt before saving it in macOS Keychain, Windows Credential Manager, or supported Linux Secret Service/KWallet. `--token-stdin` reads one token line from a secret manager or authorized automation. No plaintext fallback. Avoid putting tokens in command arguments, shell history, or guide notes.
+
+`dots auth status` reports credential source and presence without secrets; `--check` additionally checks account read access. `dots auth logout` removes only this CLI's explicitly saved credential. It does not sign out ChatGPT/Codex or clear environment overrides. Use first-party sign-out controls to end the shared login. Explicit tokens expire and are not automatically refreshed by this CLI.
 
 ## Cloud commands
 

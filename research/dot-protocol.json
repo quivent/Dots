@@ -86,10 +86,10 @@
     }
   },
   "unverified": [
-    "Whether a separately registered CLI can obtain authorization for these internal Dot endpoints",
-    "Authenticated list/create/activity calls",
     "Desktop deep-link navigation on the currently running app",
-    "Windows native execution"
+    "Windows native execution",
+    "Authenticated create/activity calls",
+    "Fresh browser login from dots auth"
   ],
   "public_docs": {
     "dot_onboarding": "https://learn.chatgpt.com/docs/dots/getting-started",
@@ -105,17 +105,19 @@
     "bootstrap-Dn-4EbjT.js": "6d11c372acf41d8b79975a8c99cf7027758977f56cdfd0c7eaa770d362687101"
   },
   "implementation": {
-    "version": "0.2.0",
-    "authentication": "Explicit supplied account token and account ID; secure OS store or process environment. No standalone browser OAuth flow implemented.",
-    "verification": "Mocked transport and CLI tests only; no live authenticated account call.",
-    "atomic_setup": [
-      "check",
-      "app",
-      "open",
-      "web",
+    "version": "0.2.1",
+    "authentication": "Reuses the local ChatGPT app-server login via account/read and getAuthStatus. Tokens remain in memory. dots auth starts first-party codex login when no reusable login is available. Explicit OS-store and environment credentials are alternatives.",
+    "verification": "Existing-login reuse and authenticated GET /tbo verified on 2026-10-18. Creation/activity and a fresh browser login are not yet verified live.",
+    "creation": "Single creation write; messaging-room recovery is a separate dots room command.",
+    "independent_commands": [
       "auth",
-      "api"
-    ],
-    "creation": "Single creation write; messaging-room recovery is a separate dots room command."
+      "check",
+      "setup",
+      "app",
+      "doctor",
+      "serve",
+      "create",
+      "room"
+    ]
   }
 }

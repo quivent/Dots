@@ -21,10 +21,10 @@ If Windows has `python` rather than the `py` launcher, use `python -m pip instal
 Or, if you downloaded the wheel:
 
 ```sh
-python3 -m pip install ./dots_cli-0.2.0-py3-none-any.whl
+python3 -m pip install ./dots_cli-0.2.1-py3-none-any.whl
 ```
 
-On Windows, use `py -m pip install .\dots_cli-0.2.0-py3-none-any.whl` for the wheel.
+On Windows, use `py -m pip install .\dots_cli-0.2.1-py3-none-any.whl` for the wheel.
 
 After installation, run `dots setup` to open ChatGPT onboarding. Use `dots --help` for other commands. Pip installs the package, formatting and OS credential-store dependencies, and the `dots` console command.
 A virtual environment is not an application requirement, and there is no separate venv setup step.
@@ -39,29 +39,24 @@ On macOS, pipx can be installed with `brew install pipx`. If pipx reports its co
 
 The package has not been published to PyPI. Do not use `pip install dots-cli` for this project yet. Use the provided source or wheel.
 
-## Independent setup
+## Sign in and create
 
-| Command | Check or action |
+If you are already signed into ChatGPT/Codex on this computer, the CLI reuses that login automatically. Otherwise run `dots auth`; it starts first-party ChatGPT sign-in when the local ChatGPT/Codex executable is installed.
+
+| Command | Action |
 |---|---|
-| `dots setup check` | Local readiness; no API call |
-| `dots setup app` | Launch desktop app only |
-| `dots setup` | Target Dot onboarding directly |
-| `dots setup web` | Target web onboarding |
-| `dots setup auth` | Credential presence only |
-| `dots setup api` | Verify catalog read access only |
-| `dots serve` | Run local guide independently |
+| `dots auth` | Sign in when needed, then verify Dot account access |
+| `dots check` | Test the current sign-in and Dot access; no login flow |
+| `dots setup` | Open guided Dot onboarding in ChatGPT |
+| `dots create NAME` | Create a Dot through the internal account API |
+| `dots doctor` | Inspect local readiness only |
+| `dots serve` | Run the local guide independently |
 
-You can run any step on its own. None creates a Dot, and a failed step does not block another. Use `dots setup STEP --json` for machine-readable output.
+`auth`, `check`, and `setup` do not create Dots. Existing-login reuse and catalog read access have been verified live; cloud creation is still unverified. The API and app-server token handoff are experimental. See [LAUNCHER.md](LAUNCHER.md) for the authentication sources, manual-token alternatives, executable discovery, and full reference.
 
-## Account commands
+Account commands include `list`, `use`, `show`, `activity`, `tasks`, `pause`, `resume`, and `room`. All accept `--json`. Local shortcuts remain independent: `dots list --local`, `dots create NAME --local`, `dots use NAME --local`, `dots activity --local`. `dots run --preset local` copies a prompt and opens ChatGPT; paste and send yourself.
 
-`dots list`, `dots create NAME`, `dots use DOT`, `dots show DOT`, `dots activity DOT`, `dots tasks DOT`, `dots pause DOT`, `dots resume DOT`, and `dots room DOT` use experimental internal account APIs. Every command accepts `--json`. They require an authorized ChatGPT account bearer token and matching account ID; an OpenAI platform API key does not supply Dot access. Browser sign-in is not implemented and live account calls remain unverified.
-
-`dots auth --help` describes credential input. `dots auth login --account-id ACCOUNT_ID` validates an existing token from a hidden prompt before storing it in an OS credential store. No private app sessions are read. See [LAUNCHER.md](LAUNCHER.md) for the authentication limitation and full command reference.
-
-Local shortcuts work independently: `dots list --local`, `dots create NAME --local`, `dots use NAME --local`, `dots activity --local`. Save a conversation link with `dots configure URL --name NAME`. `dots run --preset local` copies a prompt and opens ChatGPT; paste and send yourself.
-
-For recovery when catalog discovery is broken, `dots show DOT_ID --by-id` sends the profile request directly. The same `--by-id` option works with `use`, `activity`, `tasks`, `room`, `pause`, and `resume`. These operations do not depend on `dots list`. To make creation independent of catalog discovery, choose `dots create NAME --first` or `dots create NAME --additional`; this sends only the creation request. Without either flag, creation reads the catalog to choose automatically.
+For recovery when catalog discovery is broken, use `dots show DOT_ID --by-id`. The same option works with `use`, `activity`, `tasks`, `room`, `pause`, and `resume`. `dots create NAME --first` or `--additional` skips the creation catalog lookup.
 
 An installed release uses `~/Dots` as its workspace. `dots serve` initializes missing workspace documents without overwriting existing ones. Set `DOTS_PROJECT` to use another folder. `DOTS_DATA_HOME` overrides the local settings/history directory. Existing tracker-runtime settings are retained when that runtime is present.
 
