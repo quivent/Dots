@@ -105,7 +105,7 @@
     "bootstrap-Dn-4EbjT.js": "6d11c372acf41d8b79975a8c99cf7027758977f56cdfd0c7eaa770d362687101"
   },
   "implementation": {
-    "version": "0.2.10",
+    "version": "0.2.11",
     "authentication": "Reuses the local ChatGPT app-server login via account/read and getAuthStatus. Tokens remain in memory. dots auth starts first-party codex login when no reusable login is available. Explicit OS-store and environment credentials are alternatives.",
     "verification": "Existing-login reuse and authenticated GET /tbo verified on 2026-10-18. Creation/activity and a fresh browser login are not yet verified live.",
     "creation": "Single creation write; messaging-room recovery is a separate dots room command.",
@@ -119,6 +119,6 @@
       "create",
       "room"
     ],
-    "setup_menu": "dots setup and dots installation list update, preflight, auth, setup onboard; dots setup run executes the same list and stops on failure."
+    "setup_menu": "dots installation and dots setup list all ten operations, with bundled creation/conversation/initialization gaps, conditional room recovery, optional primary selection, and final profile inspection. dots setup run executes only update, preflight, auth, list and stops on failure."
   }
 }

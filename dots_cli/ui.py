@@ -1,6 +1,9 @@
 """Terminal formatting, with color disabled automatically for redirected output."""
 import argparse
+import ast
+from difflib import get_close_matches
 from io import StringIO
+import re
 import sys
 
 from rich.console import Console
@@ -14,7 +17,7 @@ GROUPS = [
         ('update', '', 'Update the installed Dots CLI'),
         ('setup', '', 'Show the numbered setup steps'),
         ('installation', '', 'List the individual installation and setup commands'),
-        ('setup run', '', 'Run the setup steps in order'),
+        ('setup run', '', 'Run setup prerequisites through account discovery'),
         ('preflight', '', 'Check this computer and Dot account access'),
         ('auth', '', 'Sign in, or reuse your existing login'),
         ('setup onboard', '', 'Open Dot onboarding in ChatGPT'),
@@ -70,6 +73,33 @@ class DotsParser(argparse.ArgumentParser):
         kwargs.setdefault('formatter_class', lambda prog: RichHelpFormatter(prog, console=console))
         super().__init__(*args, **kwargs)
 
+    def error(self, message):
+        """One concise error format for the root command and every subcommand."""
+        terminal = Console(file=sys.stderr, no_color=console.no_color, highlight=False)
+        correction = None
+        invalid = re.search(r'invalid choice: (.+) \(choose from ', message)
+        if invalid:
+            try:
+                value = ast.literal_eval(invalid.group(1))
+            except (ValueError, SyntaxError):
+                value = None
+            if isinstance(value, str):
+                command = self.prog + ' ' + value
+                message = 'Unknown command: ' + command
+                moved = {'dots setup steps': 'dots installation'}
+                correction = moved.get(command)
+                if correction is None:
+                    choices = [str(choice) for action in self._actions
+                               if action.choices for choice in action.choices]
+                    matches = get_close_matches(value, choices, n=1, cutoff=0.6)
+                    if matches:
+                        correction = self.prog + ' ' + matches[0]
+        else:
+            message = 'Error: ' + message
+        terminal.print(Text(message, style='yellow'))
+        terminal.print(Text('Try: ' + correction if correction else 'Help: ' + self.prog + ' --help', style='dim'))
+        self.exit(2)
+
     def format_help(self):
         if self.prog != 'dots':
             return super().format_help()
@@ -90,17 +120,22 @@ class DotsParser(argparse.ArgumentParser):
 
 
 def show_setup():
-    from .workflow import SETUP_STEPS
+    from .workflow import SETUP_STEPS, step_command
     console.print(Text('\nSetup', style='bold #f9a8d4'))
-    console.print('[dim]Run each step on its own, or run the sequence with dots setup run.[/dim]\n')
-    rows = [('setup run', '', 'Run the numbered steps below')]
-    command_tree(console, 'Run setup', rows)
+    console.print('[dim]Every operation in terminal setup. NAME is your chosen name; DOT is a returned ID or unique name.[/dim]\n')
     for index, step in enumerate(SETUP_STEPS, 1):
         label = Text(f'  {index:02d}  ', style='#67e8f9')
-        label.append('dots ' + ' '.join(step['args']), style='bold #a7f3d0')
+        label.append(step['description'].rstrip('.'), style='bold #a7f3d0')
+        if step['status'] != 'independent':
+            label.append(' · ' + step['status'], style='#fdba74')
         console.print(label)
-        console.print(Text('      ' + step['description'], style='dim'))
-    console.print('\n[dim]No step creates a Dot. Run dots create NAME when ready.[/dim]\n')
+        command = step_command(step)
+        if command:
+            console.print(Text('      ' + command))
+        if step.get('note'):
+            console.print(Text('      ' + step['note'], style='dim'))
+    console.print('\n[dim]dots setup run runs prerequisites 01–04 only; it does not create a Dot.[/dim]')
+    console.print('[dim]Steps 05–07 are currently one creation request, not independent commands. Live creation remains unverified.[/dim]\n')
 
 
 def show_list(entries):

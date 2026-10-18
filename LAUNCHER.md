@@ -1,6 +1,6 @@
 # Dots CLI
 
-Run `make` to build and install the CLI, then `dots setup` to see the numbered setup commands. Use `dots setup run` to execute them. Windows: `py -m pip install .`. Linux: `make` also works. Requires Python 3.10+. See [INSTALL.md](INSTALL.md).
+Run `make` to build and install the CLI, then `dots setup` to see the numbered setup commands. Use `dots setup run` to execute prerequisites through account discovery. Windows: `py -m pip install .`. Linux: `make` also works. Requires Python 3.10+. See [INSTALL.md](INSTALL.md).
 
 ## Set up
 
@@ -11,7 +11,7 @@ Run `make` to build and install the CLI, then `dots setup` to see the numbered s
 | `dots preflight` | Check local readiness and current Dot account access without signing in |
 | `dots installation` | List the individual setup commands without running them |
 | `dots setup` | Show the numbered setup commands; no actions run |
-| `dots setup run` | Run update → preflight → auth → setup onboard in order |
+| `dots setup run` | Run prerequisites: update → preflight → auth → list in order |
 | `dots setup onboard` | Open Dot onboarding in ChatGPT |
 | `dots doctor` | Full troubleshooting: local state, account access, tools, assets, and private-note permissions |
 | `dots serve` | Open the local guide independently of cloud access |
@@ -24,13 +24,15 @@ When no reusable login exists, run `dots auth`. It starts the first-party `codex
 
 App launch, local tools, authentication, connection checks, creation, and room repair are independent commands. A failed connection check does not block `dots app`, `dots setup`, `dots doctor`, or `dots serve`.
 
+Mistyped commands get a short correction or help command, without a usage dump. The former `dots setup steps` command points to `dots installation`; corrections never execute a command.
+
 The main screen uses three colored command groups: Setup, Dots, and Manage. `dots` and `dots --help` show the same indented command tree; `dots COMMAND --help` lists options.
 
-The setup plan starts with `dots update`, followed by `dots preflight`, `dots auth`, and `dots setup onboard`. Updates check the available version first and install only a newer CLI, preserving satisfied dependencies. Installation progress stays concise; errors show a short message and the path to a private log. Raw installer output is never printed. Updates install the latest public `quivent/Dots` main branch into the Python environment running this CLI. The updater reuses uv or pip and runs one install command, without creating a separate installer environment or upgrading pip. Only installations with neither installer bootstrap pip once. Satisfied dependencies are retained; uv targets only the CLI for upgrade. Each runner step starts a fresh CLI process so it uses the updated code.
+The terminal setup plan lists ten operations: CLI update, prerequisites, authentication, catalog discovery, profile creation, conversation creation, initialization, conditional room recovery, optional primary selection, and final profile inspection. Conversation creation and initialization are currently requested by `dots create NAME`; independent commands for those operations are not implemented. Updates check the available version first and install only a newer CLI, preserving satisfied dependencies. Installation progress stays concise; errors show a short message and the path to a private log. Raw installer output is never printed. Updates install the latest public `quivent/Dots` main branch into the Python environment running this CLI. The updater reuses uv or pip and runs one install command, without creating a separate installer environment or upgrading pip. Only installations with neither installer bootstrap pip once. Satisfied dependencies are retained; uv targets only the CLI for upgrade. Each runner step starts a fresh CLI process so it uses the updated code.
 
 `dots setup` and `dots installation` show the same plan; both accept `--json` and perform no setup actions.
 
-The setup plan and runner share one command list. The runner prints each command before executing it and stops on failure, naming the command to retry. Every step remains directly runnable; no saved completion flags or pipeline state block other commands. The final step requests onboarding navigation and does not claim onboarding is complete.
+The setup display and runner share one plan definition. The runner executes only the four prerequisite commands, prints each before execution, and stops on failure with the independent retry command. It does not create a Dot or open graphical onboarding. Remaining operations are shown with their current command and bundled, conditional, or optional status; no saved completion flags block independent commands. `dots setup onboard` remains a separate graphical alternative.
 
 ## Authentication and verification
 

@@ -14,7 +14,10 @@ class MenuTests(unittest.TestCase):
         stream = io.StringIO()
         console = Console(file=stream, force_terminal=color, no_color=not color, width=100)
         with patch('dots_cli.ui.console', console), redirect_stdout(stream), redirect_stderr(stream):
-            result = main(args)
+            try:
+                result = main(args)
+            except SystemExit as error:
+                result = error.code
         return result, stream.getvalue()
 
     @patch('dots_cli.cli.Launcher')
@@ -38,13 +41,45 @@ class MenuTests(unittest.TestCase):
         self.assertNotIn('\x1b[', plain)
 
     @patch('dots_cli.cli.Launcher')
+    @patch('dots_cli.workflow.run_setup')
+    def test_wrong_commands_get_consistent_corrections_without_execution(self, run, launcher):
+        cases = [
+            (['setup', 'steps'], 'Unknown command: dots setup steps', 'Try: dots installation'),
+            (['instalation'], 'Unknown command: dots instalation', 'Try: dots installation'),
+            (['setup', 'ru'], 'Unknown command: dots setup ru', 'Try: dots setup run'),
+            (['setup', 'nonsense'], 'Unknown command: dots setup nonsense', 'Help: dots setup --help'),
+        ]
+        for arguments, error, correction in cases:
+            with self.subTest(arguments=arguments):
+                code, output = self.invoke(arguments)
+                self.assertEqual(code, 2)
+                self.assertEqual(output.splitlines(), [error, correction])
+        run.assert_not_called()
+        launcher.assert_not_called()
+
+    def test_bad_options_get_concise_help_on_stderr(self):
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with redirect_stdout(stdout), redirect_stderr(stderr), self.assertRaises(SystemExit) as caught:
+            main(['installation', '--bogus'])
+        self.assertEqual(caught.exception.code, 2)
+        self.assertEqual(stdout.getvalue(), '')
+        self.assertIn('Error: unrecognized arguments: --bogus', stderr.getvalue())
+        self.assertEqual(len(stderr.getvalue().splitlines()), 2)
+        self.assertNotIn('Usage:', stderr.getvalue())
+
+    @patch('dots_cli.cli.Launcher')
     @patch('dots_cli.cloud.DotClient')
     def test_setup_lists_exact_steps_without_executing_them(self, client, launcher):
         code, output = self.invoke(['setup', '--json'])
         data = json.loads(output)
         self.assertEqual(code, 0)
         self.assertEqual(data['run'], 'dots setup run')
-        self.assertEqual([step['command'] for step in data['steps']], ['dots update', 'dots preflight', 'dots auth', 'dots setup onboard'])
+        self.assertEqual([step['command'] for step in data['steps']], ['dots update', 'dots preflight', 'dots auth', 'dots list', 'dots create NAME', None, None, 'dots room DOT', 'dots use DOT', 'dots show DOT'])
+        self.assertEqual(data['run_scope'], 'prerequisites only')
+        self.assertEqual(data['steps'][5]['status'], 'bundled')
+        self.assertEqual(data['steps'][6]['via'], 'dots create NAME')
+        self.assertEqual(data['steps'][7]['status'], 'conditional')
+        self.assertEqual(data['steps'][8]['status'], 'optional')
         client.assert_not_called()
         launcher.return_value.launch.assert_not_called()
 
@@ -72,11 +107,11 @@ class MenuTests(unittest.TestCase):
         self.assertEqual(code, 0)
         run.assert_called_once_with()
 
-    def test_runner_runs_only_the_listed_commands(self):
+    def test_runner_executes_only_prerequisites_without_creation_or_browser(self):
         execute = Mock(return_value=0)
         with patch('dots_cli.ui.console', Console(file=io.StringIO())):
             self.assertEqual(run_setup(execute), 0)
-        self.assertEqual(execute.call_args_list, [call(['update']), call(['preflight']), call(['auth']), call(['setup', 'onboard'])])
+        self.assertEqual(execute.call_args_list, [call(['update']), call(['preflight']), call(['auth']), call(['list'])])
 
     def test_failed_step_stops_pipeline_and_names_the_independent_command(self):
         execute = Mock(side_effect=[0, 7])

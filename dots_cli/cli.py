@@ -380,9 +380,9 @@ def main(argv=None):
     sub.add_parser('update', help='Update this CLI from quivent/Dots on GitHub (main)')
     installation = sub.add_parser('installation', help='List the individual installation and setup commands')
     installation.add_argument('--json', action='store_true', help='Print the command list as JSON')
-    setup = sub.add_parser('setup', help='Start here; show setup steps or run them in order')
+    setup = sub.add_parser('setup', help='Start here; show the full plan or run prerequisites')
     setup.add_argument('setup_action', nargs='?', choices=['run', 'onboard'],
-                       help='run: execute the sequence; onboard: launch Dot onboarding. Omit to list steps.')
+                       help='run: execute prerequisites through account discovery; onboard: open graphical onboarding separately. Omit to list every operation.')
     setup.add_argument('--json', action='store_true', help='Print the step list or onboarding result as JSON; unavailable with run')
     preflight = sub.add_parser('preflight', help='Check local readiness and current Dot account access without signing in')
     preflight.add_argument('--json', action='store_true', help='Print preflight results as JSON')
@@ -416,7 +416,7 @@ def main(argv=None):
             failed = result.get('error') or result['connection'] == 'error' or any(item['state'] == 'error' for item in result.get('diagnostics', []))
             return 1 if failed else 0
         if args.command in ('setup', 'installation'):
-            from .workflow import SETUP_STEPS, run_setup
+            from .workflow import setup_plan, run_setup
             from .ui import show_setup
             if getattr(args, 'setup_action', None) == 'run':
                 if args.json:
@@ -429,7 +429,7 @@ def main(argv=None):
                 else:
                     print(result['message'])
             elif args.json:
-                print(json.dumps({'run': 'dots setup run', 'steps': [dict(command='dots ' + ' '.join(step['args']), description=step['description']) for step in SETUP_STEPS]}, indent=2))
+                print(json.dumps(setup_plan(), indent=2))
             else:
                 show_setup()
             return 0

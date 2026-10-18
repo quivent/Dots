@@ -57,4 +57,4 @@ class DiagnosticsTests(unittest.TestCase):
         with redirect_stdout(out), redirect_stderr(out), self.assertRaises(SystemExit) as error:
             main(['check'])
         self.assertEqual(error.exception.code, 2)
-        self.assertIn('invalid choice', out.getvalue())
+        self.assertIn('Unknown command: dots check', out.getvalue())

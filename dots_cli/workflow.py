@@ -1,10 +1,34 @@
-"""One setup plan shared by the menu and runner; steps remain separate commands."""
+"""One setup plan for installation output, setup output, and prerequisite execution."""
 SETUP_STEPS = (
-    {'args': ('update',), 'description': 'Update the installed Dots CLI.'},
-    {'args': ('preflight',), 'description': 'Check local readiness and current Dot account access.'},
-    {'args': ('auth',), 'description': 'Reuse your ChatGPT login, or sign in when needed.'},
-    {'args': ('setup', 'onboard'), 'description': 'Open Dot onboarding in ChatGPT.'},
+    {'args': ('update',), 'description': 'Update the CLI.', 'status': 'independent', 'prerequisite': True},
+    {'args': ('preflight',), 'description': 'Check local prerequisites.', 'status': 'independent', 'prerequisite': True},
+    {'args': ('auth',), 'description': 'Authenticate and verify account access.', 'status': 'independent', 'prerequisite': True},
+    {'args': ('list',), 'description': 'Discover existing Dots.', 'status': 'independent', 'prerequisite': True,
+     'note': 'Catalog discovery can be bypassed with create --first or --additional.'},
+    {'args': ('create', 'NAME'), 'description': 'Create the Dot profile.', 'status': 'bundled',
+     'note': 'Currently also requests conversation creation and initialization.'},
+    {'args': None, 'description': 'Create its conversation.', 'status': 'bundled', 'via': 'dots create NAME',
+     'note': 'No independent CLI command yet; requested by dots create.'},
+    {'args': None, 'description': 'Initialize the Dot.', 'status': 'bundled', 'via': 'dots create NAME',
+     'note': 'No independent CLI command yet; requested by dots create.'},
+    {'args': ('room', 'DOT'), 'description': 'Create or recover its messaging room.', 'status': 'conditional',
+     'note': 'Only if the creation response has no messaging_room_id.'},
+    {'args': ('use', 'DOT'), 'description': 'Select it as primary.', 'status': 'optional',
+     'note': 'Optional; other commands can target a Dot explicitly.'},
+    {'args': ('show', 'DOT'), 'description': 'Inspect the resulting profile.', 'status': 'independent',
+     'note': 'Inspect returned state; profile creation does not prove initialization completed.'},
 )
+
+
+def step_command(step):
+    return 'dots ' + ' '.join(step['args']) if step['args'] else None
+
+
+def setup_plan():
+    return {'run': 'dots setup run', 'run_scope': 'prerequisites only', 'steps': [
+        {**{key: value for key, value in step.items() if key != 'args'}, 'command': step_command(step)}
+        for step in SETUP_STEPS
+    ]}
 
 
 def execute_step(arguments):
@@ -22,12 +46,13 @@ def run_setup(execute=None):
         execute = execute_step
     from .ui import console
     from rich.text import Text
-    for index, step in enumerate(SETUP_STEPS, 1):
-        command = 'dots ' + ' '.join(step['args'])
-        console.print(Text(f'\n[{index}/{len(SETUP_STEPS)}] ' + command, style='bold green'))
+    steps = [step for step in SETUP_STEPS if step.get('prerequisite')]
+    for index, step in enumerate(steps, 1):
+        command = step_command(step)
+        console.print(Text(f'\n[{index}/{len(steps)}] ' + command, style='bold green'))
         result = execute(list(step['args']))
         if result:
             console.print(Text('Setup stopped at ' + command + '. Run that command to retry, or choose another step independently.', style='yellow'))
             return result
-    console.print('\n[green]Setup steps finished.[/green] [dim]Onboarding launch requested; complete it in ChatGPT.[/dim]')
+    console.print('\n[green]Prerequisites finished.[/green] [dim]Next: dots create NAME. Use dots installation for the full plan.[/dim]')
     return 0
