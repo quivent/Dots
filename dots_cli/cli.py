@@ -378,9 +378,9 @@ def main(argv=None):
                             ('guide', 'Open the official onboarding instructions')]:
         sub.add_parser(name, help=help_text)
     sub.add_parser('update', help='Update this CLI from quivent/Dots on GitHub (main)')
-    setup = sub.add_parser('setup', help='Show setup steps; run executes them, onboard opens ChatGPT onboarding')
-    setup.add_argument('setup_action', nargs='?', choices=['run', 'onboard'],
-                       help='run: execute the setup sequence; onboard: launch Dot onboarding. Omit to list steps.')
+    setup = sub.add_parser('setup', help='Start here; steps lists the plan, run executes it')
+    setup.add_argument('setup_action', nargs='?', choices=['steps', 'run', 'onboard'],
+                       help='steps: list setup commands; run: execute the sequence; onboard: launch Dot onboarding. Omit to list steps.')
     setup.add_argument('--json', action='store_true', help='Print the step list or onboarding result as JSON; unavailable with run')
     preflight = sub.add_parser('preflight', help='Check local readiness and current Dot account access without signing in')
     preflight.add_argument('--json', action='store_true', help='Print preflight results as JSON')

@@ -49,6 +49,23 @@ class MenuTests(unittest.TestCase):
         launcher.return_value.launch.assert_not_called()
 
     @patch('dots_cli.workflow.run_setup')
+    @patch('dots_cli.cli.Launcher')
+    @patch('dots_cli.cloud.DotClient')
+    def test_explicit_setup_steps_matches_setup_without_executing(self, client, launcher, run):
+        for suffix in ([], ['--json']):
+            with self.subTest(suffix=suffix):
+                code, output = self.invoke(['setup', 'steps', *suffix])
+                default_code, default_output = self.invoke(['setup', *suffix])
+                self.assertEqual(code, 0)
+                self.assertEqual((code, output), (default_code, default_output))
+                self.assertIn('dots update', output)
+                self.assertIn('dots preflight', output)
+                self.assertIn('dots auth', output)
+        run.assert_not_called()
+        client.assert_not_called()
+        launcher.return_value.launch.assert_not_called()
+
+    @patch('dots_cli.workflow.run_setup')
     def test_setup_run_requires_explicit_action(self, run):
         run.return_value = 0
         code, _ = self.invoke(['setup', 'run'])

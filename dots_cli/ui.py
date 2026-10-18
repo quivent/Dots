@@ -13,6 +13,7 @@ GROUPS = [
     ('Setup', [
         ('update', '', 'Update the installed Dots CLI'),
         ('setup', '', 'Show the numbered setup steps'),
+        ('setup steps', '', 'List the individual setup commands'),
         ('setup run', '', 'Run the setup steps in order'),
         ('preflight', '', 'Check this computer and Dot account access'),
         ('auth', '', 'Sign in, or reuse your existing login'),
