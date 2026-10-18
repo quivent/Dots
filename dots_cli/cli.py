@@ -338,8 +338,10 @@ def main(argv=None):
                             ('web', 'Open ChatGPT in a browser'),
                             ('guide', 'Open the official onboarding instructions')]:
         sub.add_parser(name, help=help_text)
-    setup = sub.add_parser('setup', help='Open Dot onboarding in ChatGPT')
-    setup.add_argument('--json', action='store_true', help='Print the launch result as JSON')
+    setup = sub.add_parser('setup', help='Show setup steps; run runs them, open opens ChatGPT onboarding')
+    setup.add_argument('setup_action', nargs='?', choices=['run', 'open'],
+                       help='run: execute the setup sequence; open: launch Dot onboarding. Omit to list steps.')
+    setup.add_argument('--json', action='store_true', help='Print the step list or onboarding result as JSON; unavailable with run')
     check = sub.add_parser('check', help='Verify existing sign-in and read-only Dot account access')
     check.add_argument('--json', action='store_true', help='Print connection checks as JSON')
     doctor=sub.add_parser('doctor', help='Check local app, saved conversation, prompts, and result file')
@@ -374,11 +376,22 @@ def main(argv=None):
                 show_connection(result)
             return 0
         if args.command == 'setup':
-            result = launcher.launch('setup')
-            if args.json:
-                print(json.dumps(result, indent=2))
+            from .workflow import SETUP_STEPS, run_setup
+            from .ui import show_setup
+            if args.setup_action == 'run':
+                if args.json:
+                    raise ValueError('setup run is interactive. Use dots setup --json to inspect its steps.')
+                return run_setup(main)
+            if args.setup_action == 'open':
+                result = launcher.launch('setup')
+                if args.json:
+                    print(json.dumps(result, indent=2))
+                else:
+                    print(result['message'])
+            elif args.json:
+                print(json.dumps({'run': 'dots setup run', 'steps': [dict(command='dots ' + ' '.join(step['args']), description=step['description']) for step in SETUP_STEPS]}, indent=2))
             else:
-                print(result['message'])
+                show_setup()
             return 0
         from .cloud import run as run_cloud
         cloud_result = run_cloud(args, launcher)

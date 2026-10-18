@@ -1,22 +1,66 @@
 """Terminal formatting, with color disabled automatically for redirected output."""
 import argparse
 from io import StringIO
-import os
 import sys
 
 from rich.console import Console
-from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 from rich_argparse import RichHelpFormatter
 
+# Each row is a real command, its arguments, and a short description.
 GROUPS = [
-    ('Account Dots · experimental API', ['auth', 'create', 'list', 'use', 'show', 'tasks', 'activity', 'pause', 'resume', 'room']),
-    ('Setup & connections', ['setup', 'check', 'configure']),
-    ('Tasks & activity', ['run', 'open', 'app', 'copy', 'prompt']),
-    ('Local tools', ['serve', 'doctor', 'status', 'history', 'folder', 'web', 'guide']),
+    ('Setup', [
+        ('setup', '', 'Show the numbered setup steps'),
+        ('setup run', '', 'Run the setup steps in order'),
+        ('doctor', '', 'Check this computer and local files'),
+        ('auth', '', 'Sign in, or reuse your existing login'),
+        ('check', '', 'Verify sign-in and Dot account access'),
+        ('setup open', '', 'Open Dot onboarding in ChatGPT'),
+    ]),
+    ('Dots', [
+        ('list', '', 'List your Dots'),
+        ('create', 'NAME', 'Create a Dot'),
+        ('use', 'DOT', 'Select the primary Dot'),
+        ('show', '[DOT]', 'Inspect a Dot'),
+        ('open', '', 'Open the saved conversation'),
+        ('run', '--prompt TEXT', 'Copy a task and open ChatGPT'),
+        ('copy', '--prompt TEXT', 'Copy a prompt'),
+        ('prompt', '[PRESET]', 'Print a saved prompt'),
+    ]),
+    ('Manage', [
+        ('activity', '[DOT]', 'Read Dot activity'),
+        ('tasks', '[DOT]', 'List or inspect tasks'),
+        ('pause', '[DOT]', 'Request a runtime pause'),
+        ('resume', '[DOT]', 'Request a runtime resume'),
+        ('room', '[DOT]', 'Create or recover a messaging room'),
+        ('configure', 'URL', 'Save a conversation shortcut'),
+        ('serve', '', 'Open the local setup guide'),
+        ('status', '', 'Show local configuration'),
+        ('history', '', 'Show local launch history'),
+        ('app', '', 'Open the desktop app'),
+        ('web', '', 'Open ChatGPT in the browser'),
+        ('folder', '', 'Open the project folder'),
+        ('guide', '', 'Open the official setup guide'),
+    ]),
 ]
 console = Console(highlight=False)
+
+
+def command_tree(terminal, title, rows):
+    from rich.padding import Padding
+    terminal.print(Text('▸ ' + title, style='bold #f9a8d4'))
+    table = Table.grid(padding=(0, 2), expand=False)
+    table.add_column(no_wrap=True)
+    table.add_column(style='dim')
+    for index, (command, arguments, description) in enumerate(rows):
+        label = Text('└─ ' if index == len(rows) - 1 else '├─ ', style='#67e8f9')
+        label.append('dots ' + command, style='bold #a7f3d0')
+        if arguments:
+            label.append(' ' + arguments, style='#fdba74')
+        table.add_row(label, Text(description, style='dim'))
+    terminal.print(Padding(table, (0, 0, 0, 2)))
+    terminal.print()
 
 
 class DotsParser(argparse.ArgumentParser):
@@ -27,30 +71,34 @@ class DotsParser(argparse.ArgumentParser):
     def format_help(self):
         if self.prog != 'dots':
             return super().format_help()
+        from . import __version__
         output = StringIO()
         terminal = Console(file=output, width=console.width, force_terminal=console.is_terminal,
-                           no_color=console.no_color or '--no-color' in sys.argv, highlight=False)
-        terminal.print('\n[bold green]● dots[/bold green]  [dim]Account & local tools for ChatGPT Dots[/dim]\n')
-        terminal.print('[bold]Usage:[/bold] dots [--no-color] [--version] COMMAND [OPTIONS]')
-        sub = next(a for a in self._actions if isinstance(a, argparse._SubParsersAction))
-        descriptions = {a.dest: a.help for a in sub._choices_actions}
-        for title, commands in GROUPS:
-            table = Table(title=title, title_justify='left', title_style='bold', box=None,
-                          show_header=False, padding=(0, 2), expand=False)
-            table.add_column(style='green', no_wrap=True, min_width=12)
-            table.add_column()
-            for command in commands:
-                table.add_row(command, descriptions[command])
-            terminal.print('\n', end='')
-            terminal.print(table)
-        terminal.print('\n[bold]Options[/bold]')
-        terminal.print('  [green]-h, --help[/green]     Show this help')
-        terminal.print('  [green]--version[/green]      Show the installed version')
-        terminal.print('  [green]--no-color[/green]     Disable terminal colors')
-        terminal.print(Panel('make\ndots setup\ndots check\ndots list\ndots create research\ndots activity research\ndots serve', title='Examples', title_align='left', border_style='dim', expand=False))
-        terminal.print('Use [green]dots COMMAND --help[/green] for every option and argument.\n')
-        terminal.print('[dim]Cloud commands reuse your existing ChatGPT sign-in. Run dots check.\nUse --local for saved shortcuts and launcher activity.[/dim]\n')
+                           no_color=console.no_color or '--no-color' in sys.argv,
+                           color_system=None if console.no_color else console.color_system, highlight=False)
+        terminal.print(Text('\ndots', style='bold #a7f3d0'), Text('  ' + __version__, style='dim'))
+        terminal.rule(style='dim')
+        terminal.print()
+        for title, rows in GROUPS:
+            command_tree(terminal, title, rows)
+        terminal.print('[dim]Usage: dots COMMAND [OPTIONS] · dots COMMAND --help for details[/dim]')
+        terminal.print('[dim]--help  --version  --no-color · --local uses saved shortcuts[/dim]')
+        terminal.print('[dim]Account commands use an experimental API; run copies prompts for you to send.[/dim]\n')
         return output.getvalue()
+
+
+def show_setup():
+    from .workflow import SETUP_STEPS
+    console.print(Text('\nSetup', style='bold #f9a8d4'))
+    console.print('[dim]Run each step on its own, or run the sequence with dots setup run.[/dim]\n')
+    rows = [('setup run', '', 'Run the numbered steps below')]
+    command_tree(console, 'Run setup', rows)
+    for index, step in enumerate(SETUP_STEPS, 1):
+        label = Text(f'  {index:02d}  ', style='#67e8f9')
+        label.append('dots ' + ' '.join(step['args']), style='bold #a7f3d0')
+        console.print(label)
+        console.print(Text('      ' + step['description'], style='dim'))
+    console.print('\n[dim]No step creates a Dot. Run dots create NAME when ready.[/dim]\n')
 
 
 def show_list(entries):

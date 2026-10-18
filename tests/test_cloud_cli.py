@@ -99,7 +99,7 @@ class CloudCliTests(unittest.TestCase):
     @patch('dots_cli.cli.Launcher')
     def test_setup_only_opens_onboarding(self, launcher):
         launcher.return_value.launch.return_value = {'message': 'Dot onboarding launch requested.'}
-        code, output = self.invoke(['setup'])
+        code, output = self.invoke(['setup', 'open'])
         self.assertEqual(code, 0)
         launcher.return_value.launch.assert_called_once_with('setup')
         self.assertIn('onboarding', output)
