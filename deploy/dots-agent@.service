@@ -1,0 +1,28 @@
+[Unit]
+Description=Dots agent daemon (%i)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=dots-ops
+Group=dots-ops
+WorkingDirectory=/var/lib/dots-ops/agents/%i
+Environment=HOME=/var/lib/dots-ops
+Environment=CODEX_HOME=/var/lib/dots-ops/.codex
+Environment=TMPDIR=/run/dots-agent-%i
+ExecStart=/usr/bin/python3 /opt/dots-hub/agent_daemon.py %i
+Restart=on-failure
+RestartSec=5
+RuntimeDirectory=dots-agent-%i
+RuntimeDirectoryMode=0700
+UMask=0077
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/dots-ops /run/dots-agent-%i /tmp
+MemoryMax=2G
+CPUWeight=50
+
+[Install]
+WantedBy=multi-user.target

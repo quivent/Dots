@@ -77,7 +77,7 @@ class MenuTests(unittest.TestCase):
         data = json.loads(output)
         self.assertEqual(code, 0)
         self.assertEqual(data['run'], 'dots setup run')
-        self.assertEqual([step['command'] for step in data['steps']], ['dots update', 'dots preflight', 'dots auth', 'dots list', 'dots create NAME', None, None, 'dots room DOT', 'dots use DOT', 'dots show DOT'])
+        self.assertEqual([step['command'] for step in data['steps']], ['dots update', 'dots preflight', 'dots auth', 'dots list --source chatgpt', 'dots create NAME', None, None, 'dots room DOT', 'dots use DOT', 'dots show DOT'])
         self.assertEqual(data['run_scope'], 'prerequisites only')
         self.assertEqual(data['steps'][5]['status'], 'bundled')
         self.assertEqual(data['steps'][6]['via'], 'dots create NAME')
@@ -114,7 +114,7 @@ class MenuTests(unittest.TestCase):
         execute = Mock(return_value=0)
         with patch('cli.ui.console', Console(file=io.StringIO())):
             self.assertEqual(run_setup(execute), 0)
-        self.assertEqual(execute.call_args_list, [call(['update']), call(['preflight']), call(['auth']), call(['list'])])
+        self.assertEqual(execute.call_args_list, [call(['update']), call(['preflight']), call(['auth']), call(['list', '--source', 'chatgpt'])])
 
     def test_failed_step_stops_pipeline_and_names_the_independent_command(self):
         execute = Mock(side_effect=[0, 7])

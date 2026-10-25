@@ -1,0 +1,33 @@
+http://dots.kosmos.institute {
+    redir https://dots.kosmos.institute{uri} permanent
+}
+
+dots.kosmos.institute:8443 {
+    bind 127.0.0.1
+    import preview_headers
+    request_body {
+        max_size 64KB
+    }
+    header Cache-Control "no-store"
+    handle /downloads/dots-android.apk {
+        root * /opt/dots-downloads
+        rewrite * /dots-android.apk
+        header Content-Type application/vnd.android.package-archive
+        header Content-Disposition "attachment; filename=Dots-Android.apk"
+        file_server
+    }
+    # Pairing administration remains local to the Mac.
+    handle /v1/pairing/* {
+        respond "Forbidden" 403
+    }
+    handle /v1/* {
+        reverse_proxy 127.0.0.1:18770 {
+            flush_interval -1
+            transport http {
+                dial_timeout 5s
+                response_header_timeout 65s
+            }
+        }
+    }
+    respond "Dots relay. Connect using the Dots app." 200
+}

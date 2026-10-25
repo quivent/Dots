@@ -1,0 +1,14 @@
+#!/bin/sh
+# Run on demand in a terminal. No background AI loop or scheduler is installed.
+set -eu
+role=${1:-}
+case "$role" in
+    monitor|maintainer) shift ;;
+    *) echo 'Usage: dots-ops monitor|maintainer [prompt]' >&2; exit 2 ;;
+esac
+if [ "$(id -un)" != dots-ops ]; then
+    echo "Run as the dots-ops user (from root: runuser -u dots-ops -- dots-ops $role)." >&2
+    exit 1
+fi
+cd "/var/lib/dots-ops/$role"
+exec /opt/dots-codex/node_modules/.bin/codex --profile "$role" --cd "/var/lib/dots-ops/$role" "$@"

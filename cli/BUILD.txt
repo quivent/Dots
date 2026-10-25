@@ -1,0 +1,24 @@
+Build the full CLI (no virtual environment):
+
+  cd ~/Dots/cli
+  make binary
+
+Requires Nuitka on PATH, this project's Python dependencies, and a C compiler.
+On this Mac, ~/bin/nuitka uses ~/nuitka/lib and the Homebrew Python installation.
+
+Output: ~/Dots/dist/dots
+Run: ~/Dots/dist/dots --help
+
+The executable includes Python, CLI modules, dependencies, and guide files.
+It targets the operating system and architecture where it was built.
+Rebuild after editing the source. The compiled CLI's update command explains
+how to rebuild; it does not invoke pip to replace the executable.
+
+The first launch of each build unpacks its runtime into the user's cache.
+Subsequent commands reuse it instead of decompressing Python on every launch.
+Each build has a unique cache directory, so rebuilding the same version cannot
+reuse stale code. This cache holds executable resources, not credentials or chats.
+Builds compile to a staging executable, validate and warm it with --version, then
+replace dist/dots atomically. A failed build leaves the installed command intact.
+
+Intermediate files stay under build/ and dist/, both ignored by Git.

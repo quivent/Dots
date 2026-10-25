@@ -39,7 +39,8 @@ class MakeTests(unittest.TestCase):
                              'Installed dots.\n')
             self.assertEqual(run('dots', '--version').strip(), 'dots ' + __version__)
             has(self, '▸ Setup', run('dots', '--no-color', '--help'))
-            self.assertEqual(json.loads(run('dots', 'list', '--local', '--json')),
+            self.assertEqual(json.loads(run('dots', 'list', '--json')), [])
+            self.assertEqual(json.loads(run('dots', 'list', '--source', 'shortcuts', '--json')),
                              {'source': 'local_registry', 'dots': []})
             self.assertEqual(len(json.loads(run('dots', 'setup', '--json'))['steps']), 10)
             self.assertEqual(run(python, '-c', 'import sys; print(sys.prefix == sys.base_prefix)').strip(), 'True')
@@ -47,6 +48,22 @@ class MakeTests(unittest.TestCase):
             self.assertTrue(installed.is_relative_to(base / 'packages'), installed)
             self.assertFalse((base / 'workspace').exists())
             self.assertFalse((base / 'runtime').exists())
+            # Resolve every packaged resource outside the source checkout, then
+            # initialize a real fresh workspace without launching external tools.
+            result = json.loads(run(python, '-c', """
+import json
+from cli.main import Launcher
+from cli.resources import GUIDE_FILES
+launcher = Launcher()
+original = {name: launcher.resource(name).read_bytes() for name in GUIDE_FILES}
+assert all(original.values()), 'Packaged guide files must be nonempty'
+assert all(launcher.preset_text(preset) for preset in ('first', 'local', 'followup'))
+launcher.init_project()
+assert all((launcher.project / name).read_bytes() == content for name, content in original.items())
+print(json.dumps(launcher.local_readiness()))
+"""))
+            self.assertTrue(result['workspace_ready'])
+            self.assertTrue(result['presets_available'])
             # An empty PYTHONPATH component adds the caller's directory to imports.
             environment['PYTHONPATH'] = os.pathsep + str(base / 'unrelated')
             self.assertEqual(run('dots', '--version', cwd=root / 'cli').strip(), 'dots ' + __version__)

@@ -14,6 +14,8 @@ Then, on any platform:
 dots setup
 ```
 
+For an interface walkthrough, run `dots guide` or `dots terminal --help`. Guides render Markdown directly in the terminal; `dots guide terminal --plain` prints the Markdown source.
+
 On macOS and Linux, `make -C cli` builds and installs the CLI. You can also run `make` inside `cli/`. `python3 -m pip install .` from the project root is the equivalent command without make.
 
 The Makefile installs into your Python user packages and links `dots` into `~/.local/bin`. It needs no virtual environment and handles Homebrew's externally managed Python restriction for this user-only install. Keep `~/.local/bin` on PATH. Set `BIN_DIR` to choose another command directory.
@@ -52,7 +54,7 @@ If you are already signed into ChatGPT/Codex on this computer, the CLI reuses th
 | `dots preflight` | Check local readiness and current Dot account access; no login flow |
 | `dots installation` | List the individual setup commands without running them |
 | `dots setup` | Show the individual setup commands without running them |
-| `dots setup run` | Run prerequisites: update → preflight → auth → list |
+| `dots setup run` | Run prerequisites: update → preflight → auth → list --source chatgpt |
 | `dots setup onboard` | Open guided Dot onboarding in ChatGPT |
 | `dots create NAME` | Create a Dot through the internal account API |
 | `dots doctor` | Full read-only troubleshooting report |
@@ -60,9 +62,9 @@ If you are already signed into ChatGPT/Codex on this computer, the CLI reuses th
 
 `auth`, `preflight`, and `setup` do not create Dots. Existing-login reuse and catalog read access have been verified live; cloud creation is still unverified. The API and app-server token handoff are experimental. See [LAUNCHER.md](LAUNCHER.md) for the authentication sources, manual-token alternatives, executable discovery, and full reference.
 
-Account commands include `list`, `use`, `show`, `activity`, `tasks`, `pause`, `resume`, and `room`. All accept `--json`. Local shortcuts remain independent: `dots list --local`, `dots create NAME --local`, `dots use NAME --local`, `dots activity --local`. `dots run --preset local` copies a prompt and opens ChatGPT; paste and send yourself.
+Run `dots import --source chatgpt` to save existing actual Dots locally, then `dots list` and `dots chat NAME`. `dots create NAME` creates an account Dot and saves it locally; no Codex worker is substituted. Commands default to these saved identities. Use `--source chatgpt` for direct account operations. Legacy URL shortcuts remain independent under `--source shortcuts`. `dots run --preset local` copies a prompt and opens ChatGPT; paste and send yourself.
 
-For recovery when catalog discovery is broken, use `dots show DOT_ID --by-id`. The same option works with `use`, `activity`, `tasks`, `room`, `pause`, and `resume`. `dots create NAME --first` or `--additional` skips the creation catalog lookup.
+For recovery when catalog discovery is broken, use `dots show DOT_ID --by-id --source chatgpt`. The same option works with `use`, `activity`, `tasks`, `room`, `pause`, and `resume`. `dots create NAME --first` or `--additional` skips the creation catalog lookup.
 
 An installed release uses `~/Dots` as its workspace. `dots setup onboard`, `dots web`, and prompt-launch commands initialize missing workspace documents without overwriting existing ones. `dots preflight` checks readiness and current account access without creating files. `dots doctor` provides broader troubleshooting diagnostics. The starter trial requires no separate tracker. Set `DOTS_PROJECT` to use another folder. `DOTS_DATA_HOME` overrides the local settings/history directory. Existing tracker-runtime settings are retained when that runtime is present.
 
@@ -74,7 +76,7 @@ Update the installed CLI from the public `quivent/Dots` main branch:
 dots update
 ```
 
-The command checks for a newer version before installing anything and preserves satisfied dependencies. This works with pip and pipx installations. It reuses uv or pip for one install command; only installations with neither bootstrap pip once. It creates no separate installer environment. Raw installer output is never printed, including on failure; detailed errors go to a private log whose path is shown. Setup starts with this update, then preflight, authentication, and onboarding.
+The command checks for a newer version before installing anything and preserves satisfied dependencies. This works with pip and pipx installations. It uses pip for one install command, bootstrapping pip once if missing. Global Python installations update the user site, matching `make`; active virtual environments update in place. It creates no separate installer environment. Raw installer output is never printed, including on failure; detailed errors go to a private log whose path is shown. Setup starts with this update, then preflight, authentication, and onboarding.
 
 From an updated source checkout, `make -C cli` also rebuilds and installs the CLI.
 

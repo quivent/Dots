@@ -1,0 +1,8 @@
+# Permit this root-owned Codex installation to construct its own sandbox.
+# System-wide Ubuntu user namespace restrictions remain enabled.
+abi <abi/4.0>,
+include <tunables/global>
+
+profile dots_codex /opt/dots-codex/node_modules/@openai/codex-linux-x64/vendor/x86_64-unknown-linux-musl/bin/codex flags=(unconfined) {
+    userns,
+}

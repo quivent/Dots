@@ -3,13 +3,13 @@ from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
-from pathlib import Path
 import secrets
-import subprocess
 import urllib.error
 import urllib.request
 import webbrowser
 from urllib.parse import urlsplit
+
+from .resources import GUIDE_FILES
 
 
 class SetupServer(ThreadingHTTPServer):
@@ -46,21 +46,10 @@ class SetupServer(ThreadingHTTPServer):
                         os.fchmod(f.fileno(), 0o600)
                     f.write('\n## Local setup note — ' + datetime.now(timezone.utc).isoformat() + '\n\n' + notes.strip() + '\n')
             return dict(ok=True, message='Notes saved privately in ' + str(notes_path) + '.')
-        if action == 'prepare':
-            preset = data.get('preset')
-            if preset not in ('first', 'local', 'followup'):
-                raise ValueError('Choose a supported prompt.')
-            prompt = next(p['text'] for p in launcher.presets() if p['id'] == preset)
-            return launcher.prepare(prompt)
-        if action not in ('setup', 'app', 'copy', 'dot', 'folder'):
+        if action not in ('prepare', 'setup', 'app', 'copy', 'dot', 'folder'):
             raise ValueError('Unsupported setup action.')
-        prompt = ''
-        if action in ('app', 'copy', 'dot'):
-            preset = data.get('preset')
-            if preset not in ('first', 'local', 'followup'):
-                raise ValueError('Choose a supported prompt.')
-            prompt = next(p['text'] for p in launcher.presets() if p['id'] == preset)
-        return launcher.launch(action, prompt)
+        prompt = launcher.preset_text(data.get('preset')) if action in ('prepare', 'app', 'copy', 'dot') else ''
+        return launcher.prepare(prompt) if action == 'prepare' else launcher.launch(action, prompt)
 
 
 class SetupHandler(BaseHTTPRequestHandler):
@@ -97,10 +86,7 @@ class SetupHandler(BaseHTTPRequestHandler):
                 return self.reply(200, self.server.status())
             except (ValueError, OSError):
                 return self.reply(500, {'error': 'Could not read local launcher state.'})
-        name = {'/': 'setup.html', '/setup.html': 'setup.html', '/index.html': 'index.html',
-                '/README.md': 'README.md', '/LAUNCHER.md': 'LAUNCHER.md',
-                '/FIRST-MESSAGE.md': 'FIRST-MESSAGE.md', '/FIRST-RESULT.md': 'FIRST-RESULT.md',
-                '/TRIALS.md': 'TRIALS.md', '/INSTALL.md': 'INSTALL.md'}.get(path)
+        name = {'/': 'setup.html', **{'/' + name: name for name in (*GUIDE_FILES, 'FIRST-RESULT.md')}}.get(path)
         if not name:
             return self.reply(404, {'error': 'Not found.'})
         try:

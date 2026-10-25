@@ -13,13 +13,16 @@ from cli.main import Launcher, main
 
 class RefactorCompatibilityTests(unittest.TestCase):
     def invoke(self, arguments):
+        from cli.sources import AGENT_COMMANDS
+        if arguments and arguments[0] in AGENT_COMMANDS and "--source" not in arguments:
+            arguments = [*arguments, "--source", "chatgpt"]
         stream = io.StringIO()
         with redirect_stdout(stream), redirect_stderr(stream):
             result = main(arguments)
         return result, stream.getvalue()
 
     def test_create_flags_keep_three_distinct_catalog_policies(self):
-        with patch('cli.main.Launcher'), patch('cli.cloud.run', return_value=0) as dispatch:
+        with patch('cli.main.Launcher'), patch('cli.sources.run', return_value=0) as dispatch:
             for options, expected in (([], None), (['--first'], False), (['--additional'], True)):
                 with self.subTest(options=options):
                     self.assertEqual(self.invoke(['create', 'Research', *options])[0], 0)

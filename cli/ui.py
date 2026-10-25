@@ -3,6 +3,7 @@ import argparse
 import ast
 from difflib import get_close_matches
 from io import StringIO
+import json
 import re
 import sys
 
@@ -63,6 +64,9 @@ class DotsParser(argparse.ArgumentParser):
         self.exit(2)
 
     def format_help(self):
+        if self.prog in ('dots terminal', 'dots terminal guide'):
+            from .guide import format_terminal_help
+            return format_terminal_help(console)
         if self.prog != 'dots':
             return super().format_help()
         from . import __version__
@@ -72,6 +76,7 @@ class DotsParser(argparse.ArgumentParser):
                            color_system=None if console.no_color else console.color_system, highlight=False)
         terminal.print(Text('\ndots', style='bold #a7f3d0'), Text('  ' + __version__, style='dim'))
         terminal.rule(style='dim')
+        terminal.print(Text('Default: locally saved ChatGPT Dots. Import: dots import --source chatgpt', style='dim'))
         terminal.print()
         from .commands import menu_groups
         for title, rows in menu_groups():
@@ -111,6 +116,16 @@ def show_list(entries):
                title='Saved Dot conversations', caption='Local shortcuts — not an account listing', header_style='bold')
 
 
+def show_saved(entries):
+    if not entries:
+        console.print('No saved Dots. Run dots import --source chatgpt, or dots create NAME.')
+        return
+    show_table(('Active', 'ID', 'Name', 'Backend', 'Status'),
+               (('●' if e.get('selected') else '', e['id'], e['display_name'],
+                 'ChatGPT Dot' if e['backend'] == 'chatgpt' else 'Hosted Codex (uses allowance)',
+                 e['status']) for e in entries), title='Saved Dots', header_style='bold')
+
+
 def show_activity(events):
     console.print('[bold]Local launcher activity[/bold] [dim]— app opens and clipboard actions[/dim]')
     if events:
@@ -145,3 +160,24 @@ def show_doctor(data):
     show_table(('Check', 'State', 'Detail'),
                ((item['check'], item['state'], item['detail']) for item in data['diagnostics']),
                title='Troubleshooting diagnostics')
+
+
+def output(value, raw=False, title='Dots', render=None):
+    if raw:
+        print(json.dumps(value, indent=2, ensure_ascii=False))
+    elif render:
+        render(value)
+    elif isinstance(value, list):
+        if not value:
+            console.print('No records returned.')
+            return
+        if any(not isinstance(item, dict) for item in value):
+            raise ValueError('Unexpected record in internal API response. Try --json.')
+        show_table((Column('ID', style='green'), 'Name / title', 'Status'),
+                   ((item.get('id', item.get('thread_id', '')),
+                     item.get('display_name', item.get('title', item.get('name', ''))),
+                     item.get('status', item.get('state', ''))) for item in value), title=title)
+    else:
+        # Render unrecognized profile fields faithfully instead of inventing a schema.
+        from rich.json import JSON
+        console.print(JSON.from_data(value))

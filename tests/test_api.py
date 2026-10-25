@@ -90,6 +90,23 @@ class ApiTests(unittest.TestCase):
             client.request('POST', '/tbo')
         self.assertEqual(opener.open.call_count, 1)
 
+    def test_additional_dot_restriction_is_reported_without_generic_auth_advice(self):
+        client, opener = self.client()
+        opener.open.side_effect = HTTPError('https://example', 403, 'Forbidden', {},
+            io.BytesIO(json.dumps({'detail': 'Additional dots are not enabled'}).encode()))
+        with self.assertRaisesRegex(ApiError, 'Additional Dots are not enabled') as caught:
+            client.create('Polly', additional=True)
+        self.assertEqual(caught.exception.status, 403)
+        self.assertEqual(opener.open.call_count, 1)
+
+    def test_unknown_creation_error_body_is_not_disclosed(self):
+        client, opener = self.client()
+        opener.open.side_effect = HTTPError('https://example', 403, 'Forbidden', {},
+            io.BytesIO(json.dumps({'detail': 'private-token'}).encode()))
+        with self.assertRaises(ApiError) as caught:
+            client.create('Polly', additional=True)
+        self.assertNotIn('private-token', str(caught.exception))
+
     def test_incomplete_create_is_not_reported_as_success(self):
         client, _ = self.client({'items': []}, {'id': 'one'})
         with self.assertRaisesRegex(ApiError, 'Outcome unknown'):

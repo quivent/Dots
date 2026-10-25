@@ -1,8 +1,10 @@
 # Dots
 
+Read the interface guides with `dots guide`, `dots guide terminal`, `dots guide desktop`, `dots guide mobile`, or `dots guide sources`. `dots terminal guide` and `dots terminal --help` show the terminal guide with Markdown formatting; add `--plain` to print raw Markdown.
+
 On macOS or Linux, from this checkout run `make -C cli` to build and install the CLI, then `dots setup` to see the setup steps. You can also run `make` inside `cli/`. Run `dots setup run` to execute prerequisites through account discovery. Without make, use `python3 -m pip install .` (Windows: `py -m pip install .`). This installs the `dots` console command and its dependencies. Pipx is an optional isolated alternative. See [INSTALL.md](INSTALL.md) for macOS prerequisites, wheel installation, upgrades, and removal. Run `dots --help` for all commands.
 
-Start with `dots setup`. Use `dots installation` to list the individual commands without running them. Run `dots` for the grouped command menu. `dots setup` and `dots installation` list all ten operations through profile inspection, including bundled creation work and conditional actions. `dots setup run` runs prerequisites only: update → preflight → auth → list.
+Start with `dots setup`. Use `dots installation` to list the individual commands without running them. Run `dots` for the grouped command menu. `dots setup` and `dots installation` list all ten operations through profile inspection, including bundled creation work and conditional actions. `dots setup run` runs prerequisites only: update → preflight → auth → list --source chatgpt.
 
 Optional local setup desk: run `dots web`. It opens `http://127.0.0.1:8768/setup.html` with launcher actions, live local checks, and trial-note saving. You can also open [setup.html](setup.html) directly for instructions and copy buttons.
 
@@ -10,7 +12,13 @@ Optional local setup desk: run `dots web`. It opens `http://127.0.0.1:8768/setup
 
 `dots auth` signs in when needed and verifies access. `dots preflight` checks local readiness and current Dot account access without starting sign-in. `dots setup` shows the steps; `dots setup onboard` opens Dot onboarding. Already signed in through ChatGPT/Codex? The CLI reuses that login automatically.
 
-The CLI includes account `list`, `create`, `use`, `show`, `activity`, `tasks`, `pause`, `resume`, and `room` commands. Existing-login reuse and catalog read access are verified; creation remains unverified. The account API and local auth handoff are experimental. Local tools work independently with `--local`. See [LAUNCHER.md](LAUNCHER.md) for every command and exact limits.
+Terminal commands default to locally saved identities for actual ChatGPT Dots. Run `dots import --source chatgpt` to save your existing Dots, `dots list` to see them, and `dots use NAME` to select the default. `dots create NAME` creates an actual account Dot and saves its identity here; it does not create a Codex worker. Account creation restrictions still apply. The account API and local auth handoff are experimental. See [LAUNCHER.md](LAUNCHER.md) for every command and exact limits.
+
+Use `--source chatgpt` for direct account discovery and controls, `--source hosted` for the separate hosted Codex catalog, and `--source shortcuts` for old URL shortcuts. Hosted entries are labeled as using Codex allowance and this terminal client does not send chat to them. `dots rename NAME NEW_NAME` changes a local alias; add `--source chatgpt` to change the provider's name.
+
+Chat directly in your terminal with `dots chat Pocket` (replace Pocket with your Dot's name). Use `dots chat Pocket --message "Hello"` for one message and a reply wait. `/refresh` reads recent messages, `/wait` continues waiting, and `/quit` exits. Paused Dots stay paused; use `dots resume Pocket` explicitly when you want it running. This talks to the same existing cloud Dot used by ChatGPT and the phone relay; `dots run` remains the clipboard/app launcher. Omit the name to use the selected saved Dot.
+
+Dot conversations do not count toward ChatGPT usage limits. Tasks a Dot starts or manages in Work or Codex do count toward those products' limits. The terminal adds no Codex inference layer; it cannot impose a provider-wide block on delegation. [Official Dots usage](https://learn.chatgpt.com/docs/dots)
 
 ## What you are evaluating
 

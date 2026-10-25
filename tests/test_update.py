@@ -12,6 +12,7 @@ from rich.console import Console
 from cli import __version__
 from cli.update import SOURCE, update, latest_version, install, report_failure
 from cli.workflow import execute_step
+from cli.install import pip_command
 
 
 has = unittest.TestCase.assertIn
@@ -62,25 +63,20 @@ class UpdateTests(unittest.TestCase):
         self.assertNotIn('UNWANTED', output)
         self.assertEqual(len(output.splitlines()), 1)
 
-    @patch('cli.update.shutil.which', return_value='/tools/uv')
-    @patch('cli.update.find_spec')
-    @patch('cli.update.subprocess.run')
-    def test_uv_is_one_install_command_without_environment_or_pip_bootstrap(self, run, spec, which):
-        install({})
-        self.assertEqual(run.call_count, 1)
-        command = run.call_args.args[0]
-        self.assertEqual(command[:6], ['/tools/uv', 'pip', 'install', '--quiet', '--python', sys.executable])
-        has(self, '--upgrade-package', command)
-        self.assertNotIn('--upgrade', command)
-        self.assertNotIn('--force-reinstall', command)
-        self.assertEqual(command[-1], SOURCE)
-        self.assertTrue(run.call_args.kwargs['capture_output'])
-        spec.assert_not_called()
+    def test_install_policy_targets_user_python_or_active_environment(self):
+        with patch('cli.install.sys.prefix', sys.base_prefix):
+            command = pip_command(SOURCE, upgrade=True)
+            has(self, '--user', command)
+            has(self, '--break-system-packages', command)
+            has(self, '--upgrade', command)
+        with patch('cli.install.sys.prefix', '/active/venv'):
+            command = pip_command(SOURCE)
+            self.assertNotIn('--user', command)
+            self.assertNotIn('--break-system-packages', command)
 
-    @patch('cli.update.shutil.which', return_value=None)
     @patch('cli.update.find_spec', return_value=object())
     @patch('cli.update.subprocess.run')
-    def test_existing_pip_is_one_install_command(self, run, spec, which):
+    def test_existing_pip_is_one_install_command(self, run, spec):
         install({})
         self.assertEqual(run.call_count, 1)
         command = run.call_args.args[0]
@@ -89,10 +85,9 @@ class UpdateTests(unittest.TestCase):
         self.assertNotIn('--no-cache-dir', command)
         self.assertEqual(command[-1], SOURCE)
 
-    @patch('cli.update.shutil.which', return_value=None)
     @patch('cli.update.find_spec', return_value=None)
     @patch('cli.update.subprocess.run')
-    def test_bootstrap_only_when_no_installer_exists(self, run, spec, which):
+    def test_bootstrap_only_when_no_installer_exists(self, run, spec):
         install({})
         self.assertEqual(run.call_count, 2)
         self.assertEqual(run.call_args_list[0].args[0], [sys.executable, '-m', 'ensurepip', '--upgrade'])

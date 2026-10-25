@@ -3,7 +3,6 @@ from importlib.util import find_spec
 from pathlib import Path
 import os
 import re
-import shutil
 import subprocess
 import sys
 from tempfile import mkstemp
@@ -11,6 +10,7 @@ from urllib.error import URLError
 from urllib.request import Request, urlopen
 
 from . import __version__
+from .install import pip_command
 
 SOURCE = 'https://github.com/quivent/Dots/archive/refs/heads/main.zip'
 VERSION_URL = 'https://raw.githubusercontent.com/quivent/Dots/main/cli/__init__.py'
@@ -36,20 +36,10 @@ def run_quiet(command, environment, timeout=300):
 
 
 def install(environment):
-    uv = shutil.which('uv')
-    if uv:
-        command = [uv, 'pip', 'install', '--quiet', '--python', sys.executable,
-                   '--upgrade-package', 'dots-cli']
-        if sys.prefix == sys.base_prefix:
-            command.append('--system')
-        run_quiet([*command, SOURCE], environment)
-        return
     if find_spec('pip') is None:
-        # Only for installations with neither uv nor pip. This is a one-time
-        # bootstrap in the existing interpreter, not a new environment per update.
+        # Bootstrap pip in the existing interpreter when needed.
         run_quiet([sys.executable, '-m', 'ensurepip', '--upgrade'], environment, timeout=120)
-    run_quiet([sys.executable, '-m', 'pip', '--disable-pip-version-check',
-               'install', '--quiet', '--upgrade', SOURCE], environment)
+    run_quiet(pip_command(SOURCE, upgrade=True), environment)
 
 
 def report_failure(console, error):
@@ -78,6 +68,9 @@ def report_failure(console, error):
 
 def update():
     from .ui import console
+    if '__compiled__' in globals():
+        console.print('This is a compiled Dots CLI. To update it, rebuild from your updated checkout with make -C cli binary.', markup=False)
+        return 0
     # Shell import paths can expose unrelated source distributions to installers.
     environment = {key: value for key, value in os.environ.items()
                    if key not in ('PYTHONPATH', 'PYTHONHOME')}

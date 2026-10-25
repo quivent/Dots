@@ -4,7 +4,7 @@ import plistlib
 import subprocess
 import tempfile
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 import cli.main as dots
 
 
@@ -69,8 +69,47 @@ class LauncherTests(unittest.TestCase):
         has(self, str(dots.PROJECT),status['presets'][1]['text']);self.run.assert_not_called()
         self.assertFalse((self.base/'runtime').exists())
 
-    def test_setup_guide_is_distinct_from_opening_chatgpt(self):
-        plan=self.launcher.plan('guide');self.assertEqual(plan[0]['argv'],['/usr/bin/open',dots.SETUP_URL])
+    def test_removed_launch_actions_are_rejected(self):
+        for action in ('guide', 'web'):
+            with self.subTest(action=action), self.assertRaisesRegex(ValueError, 'Unknown launcher action'):
+                self.launcher.plan(action)
+
+    def test_prepare_browser_fallback_initializes_and_records_once(self):
+        self.launcher.project = self.base / 'fresh-project'
+        self.launcher.app = self.base / 'missing.app'
+        with patch.object(self.launcher, 'init_project', wraps=self.launcher.init_project) as initialize:
+            result = self.launcher.prepare('private prompt')
+        initialize.assert_called_once_with()
+        self.assertTrue(result['copied'])
+        self.assertEqual(self.run.call_count, 2)
+        self.assertEqual(len(self.launcher.history()), 1)
+        self.assertTrue(all((self.launcher.project / name).stat().st_size for name in dots.GUIDE_FILES))
+
+    def test_prepare_browser_failure_retains_copied_status(self):
+        self.launcher.project = self.base / 'fresh-project'
+        self.launcher.app = self.base / 'missing.app'
+        self.run.side_effect = [subprocess.CompletedProcess([], 0), subprocess.CompletedProcess([], 1)]
+        with self.assertRaisesRegex(ValueError, 'Prompt was copied'):
+            self.launcher.prepare('private prompt')
+        self.assertEqual(len(self.launcher.history()), 1)
+        self.assertEqual(self.launcher.history()[0]['outcome'], 'failed')
+        self.assertTrue(self.launcher.history()[0]['copied'])
+
+    def test_prepare_browser_dry_run_has_no_side_effects(self):
+        self.launcher.project = self.base / 'fresh-project'
+        self.launcher.app = self.base / 'missing.app'
+        result = self.launcher.prepare('private prompt', dry_run=True)
+        self.assertEqual(len(result['commands']), 2)
+        self.assertFalse(self.launcher.project.exists())
+        self.assertFalse(self.launcher.runtime.exists())
+        self.run.assert_not_called()
+
+    def test_missing_source_does_not_leave_empty_destination(self):
+        self.launcher.project = self.base / 'fresh-project'
+        with patch('cli.main.shared_resource', side_effect=FileNotFoundError('missing source')):
+            with self.assertRaises(FileNotFoundError):
+                self.launcher.init_project()
+        self.assertFalse((self.launcher.project / dots.GUIDE_FILES[0]).exists())
 
     def test_configuration_can_be_saved_and_cleared_without_launching(self):
         self.launcher.configure('https://chatgpt.com/c/example');self.assertTrue(self.launcher.settings()['url'])

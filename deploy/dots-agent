@@ -1,0 +1,20 @@
+#!/usr/bin/env python3
+"""Resume a named hosted session without creating another agent."""
+import json
+import os
+from pathlib import Path
+import pwd
+import sys
+
+if pwd.getpwuid(os.geteuid()).pw_name != 'dots-ops':
+    raise SystemExit('Run as dots-ops: runuser -u dots-ops -- dots-agent NAME')
+registry = json.loads(Path('/var/lib/dots-ops/agents.json').read_text())
+if len(sys.argv) != 2:
+    raise SystemExit('Usage: dots-agent ' + '|'.join(registry))
+item = next((v for k, v in registry.items() if k.casefold() == sys.argv[1].casefold()), None)
+if item is None or item.get('setup_state') != 'verified':
+    raise SystemExit('No verified agent with that name.')
+os.chdir(item['workspace'])
+os.execv('/opt/dots-codex/node_modules/.bin/codex',
+         ['codex', '--profile', item['profile'], '--cd', item['workspace'],
+          'resume', item['thread_id']])

@@ -3,7 +3,7 @@ SETUP_STEPS = (
     {'args': ('update',), 'description': 'Update the CLI.', 'status': 'independent', 'prerequisite': True},
     {'args': ('preflight',), 'description': 'Check local prerequisites.', 'status': 'independent', 'prerequisite': True},
     {'args': ('auth',), 'description': 'Authenticate and verify account access.', 'status': 'independent', 'prerequisite': True},
-    {'args': ('list',), 'description': 'Discover existing Dots.', 'status': 'independent', 'prerequisite': True,
+    {'args': ('list', '--source', 'chatgpt'), 'description': 'Discover existing account Dots.', 'status': 'independent', 'prerequisite': True,
      'note': 'Catalog discovery can be bypassed with create --first or --additional.'},
     {'args': ('create', 'NAME'), 'description': 'Create the Dot profile.', 'status': 'bundled',
      'note': 'Currently also requests conversation creation and initialization.'},
@@ -37,7 +37,9 @@ def execute_step(arguments):
     import sys
     # Reload the installed package for each step, especially after self-update.
     # A source checkout in the caller's working directory must not shadow it.
-    return subprocess.run([sys.executable, '-m', 'cli', *arguments],
+    command = ([sys.executable] if '__compiled__' in globals()
+               else [sys.executable, '-m', 'cli'])
+    return subprocess.run([*command, *arguments],
                           cwd=Path(sys.executable).parent).returncode
 
 
@@ -55,4 +57,20 @@ def run_setup(execute=None):
             console.print(Text('Setup stopped at ' + command + '. Run that command to retry, or choose another step independently.', style='yellow'))
             return result
     console.print('\n[green]Prerequisites finished.[/green] [dim]Next: dots create NAME. Use dots installation for the full plan.[/dim]')
+    return 0
+
+
+def run(args, launcher):
+    from .ui import output, show_setup
+    action = getattr(args, 'setup_action', None)
+    if action == 'run':
+        if args.json:
+            raise ValueError('setup run is interactive. Use dots setup --json to inspect its steps.')
+        return run_setup()
+    if action == 'onboard':
+        output(launcher.launch('setup'), args.json, render=lambda result: print(result['message']))
+    elif args.json:
+        output(setup_plan(), True)
+    else:
+        show_setup()
     return 0

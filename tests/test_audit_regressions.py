@@ -22,6 +22,9 @@ has = unittest.TestCase.assertIn
 
 class AuditRegressions(unittest.TestCase):
     def invoke(self, args):
+        from cli.sources import AGENT_COMMANDS
+        if args and args[0] in AGENT_COMMANDS and "--source" not in args:
+            args = [*args, "--source", "chatgpt"]
         stream = io.StringIO()
         with redirect_stdout(stream), redirect_stderr(stream):
             code = main(args)
@@ -161,7 +164,7 @@ class AuditRegressions(unittest.TestCase):
             runner = Mock(return_value=subprocess.CompletedProcess([], 1, '', ''))
             launcher = Launcher(project=base, runtime=base / 'runtime', runner=runner, platform='linux')
             with self.assertRaises(ValueError):
-                launcher.launch('web')
+                launcher.launch('activity', url='https://chatgpt.com/c/example')
             self.assertEqual(launcher.history()[0]['outcome'], 'failed')
 
     @patch('cli.cloud.DotClient')

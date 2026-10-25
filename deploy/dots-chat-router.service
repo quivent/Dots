@@ -1,0 +1,22 @@
+[Unit]
+Description=Dots shared chat router
+After=network-online.target dots-bank.service dots-agent@wavesmith.service dots-agent@oscillator.service dots-agent@belle.service
+Wants=network-online.target dots-bank.service
+
+[Service]
+User=dots-ops
+Group=dots-ops
+WorkingDirectory=/var/lib/dots-ops
+Environment=HOME=/var/lib/dots-ops
+ExecStart=/usr/bin/python3 /opt/dots-hub/chat_router.py
+Restart=on-failure
+RestartSec=3
+UMask=0077
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/dots-ops/chat-hub
+MemoryMax=512M
+
+[Install]
+WantedBy=multi-user.target

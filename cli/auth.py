@@ -15,6 +15,8 @@ import sys
 import threading
 import time
 
+from . import __version__
+
 
 class AuthUnavailable(ValueError):
     pass
@@ -47,7 +49,7 @@ def _account_id(result, token):
 
 
 def _exchange(rpc):
-    rpc('initialize', {'clientInfo': {'name': 'cli', 'version': '0.2.5'},
+    rpc('initialize', {'clientInfo': {'name': 'cli', 'version': __version__},
                        'capabilities': {'experimentalApi': True}})
     account = rpc('account/read', {'refreshToken': False}).get('account') or {}
     if account.get('type') != 'chatgpt':

@@ -51,7 +51,7 @@ class CliTests(unittest.TestCase):
         serve.assert_called_once_with(launcher.return_value, port=0, open_browser=False)
 
     def test_removed_commands_are_not_registered(self):
-        for name in ['serve', 'folder', 'guide']:
+        for name in ['serve', 'folder']:
             with self.subTest(command=name), redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as error:
                 main([name])
             self.assertEqual(error.exception.code, 2)

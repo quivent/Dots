@@ -13,6 +13,9 @@ has = unittest.TestCase.assertIn
 
 class CloudCliTests(unittest.TestCase):
     def invoke(self, argv):
+        from cli.sources import AGENT_COMMANDS
+        if argv and argv[0] in AGENT_COMMANDS and "--source" not in argv:
+            argv = [*argv, "--source", "chatgpt"]
         output = io.StringIO()
         with redirect_stdout(output), redirect_stderr(output):
             try:
@@ -22,7 +25,7 @@ class CloudCliTests(unittest.TestCase):
         return code, output.getvalue()
 
     @patch('cli.cloud.DotClient')
-    def test_list_defaults_to_account(self, client):
+    def test_explicit_account_source_lists_account(self, client):
         client.return_value.list.return_value = [{'id': 'dot1', 'display_name': 'Research'}]
         code, output = self.invoke(['list', '--json'])
         self.assertEqual(code, 0)
@@ -33,7 +36,7 @@ class CloudCliTests(unittest.TestCase):
     @patch('cli.main.Launcher')
     def test_local_list_is_independent_of_cloud_auth(self, launcher, client):
         launcher.return_value.list_dots.return_value = []
-        code, output = self.invoke(['list', '--local', '--json'])
+        code, output = self.invoke(['list', '--source', 'shortcuts', '--json'])
         self.assertEqual(code, 0)
         has(self, 'local_registry', output)
         client.assert_not_called()
@@ -47,6 +50,19 @@ class CloudCliTests(unittest.TestCase):
         self.assertEqual(code, 0)
         client.return_value.request.assert_called_once_with('POST', '/tbo/one/messaging-room')
         client.return_value.create.assert_not_called()
+
+    @patch('cli.cloud.DotClient')
+    def test_registered_profile_and_runtime_routes_execute_once(self, client):
+        client.return_value.path.return_value = '/tbo/one'
+        client.return_value.request.return_value = {}
+        for command, method, suffix in (('show', 'GET', ''), ('room', 'POST', '/messaging-room'),
+                                         ('pause', 'POST', '/runtime/pause'), ('resume', 'POST', '/runtime/resume')):
+            with self.subTest(command=command):
+                client.reset_mock()
+                self.assertEqual(self.invoke([command, 'one', '--by-id', '--json'])[0], 0)
+                client.return_value.request.assert_called_once_with(method, '/tbo/one' + suffix)
+                client.return_value.resolve.assert_not_called()
+                client.return_value.list.assert_not_called()
 
     @patch('cli.cloud.DotClient')
     def test_task_detail_encodes_task_id(self, client):

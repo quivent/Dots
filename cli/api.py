@@ -12,6 +12,8 @@ from urllib.error import HTTPError
 from urllib.parse import quote, urlencode, unquote
 from urllib.request import Request, build_opener, HTTPRedirectHandler
 
+from . import __version__
+
 BASE_URL = 'https://chatgpt.com/backend-api'
 SERVICE = 'dots-cli'
 
@@ -112,13 +114,20 @@ class DotClient:
             'Authorization': 'Bearer ' + self.token,
             'ChatGPT-Account-Id': self.account_id,
             'Accept': 'application/json', 'Content-Type': 'application/json',
-            'User-Agent': 'dots-cli/0.2.5',
+            'User-Agent': 'dots-cli/' + __version__,
         })
         try:
             with self.opener.open(request, timeout=540 if method == 'POST' and path == '/tbo' else 30) as response:
                 raw = response.read()
                 return json.loads(raw) if raw else {}
         except HTTPError as error:
+            additional_disabled = False
+            if error.code == 403 and method == 'POST' and path == '/tbo':
+                try:
+                    detail = json.loads(error.read(16384)).get('detail')
+                    additional_disabled = detail == 'Additional dots are not enabled'
+                except (OSError, HTTPException, ValueError, TypeError, AttributeError):
+                    pass
             error.close()
             messages = {401: 'Account authorization expired or was rejected. Check your ChatGPT/Codex sign-in, then run dots preflight.',
                         403: 'Dot access was denied. Check account eligibility, workspace permissions, and credential scope.',
@@ -127,6 +136,9 @@ class DotClient:
                         429: 'Rate limited. Wait before trying again.'}
             # Do not print raw responses, request headers, or token-bearing exception URLs.
             message = messages.get(error.code, 'Internal Dot API request failed.')
+            if additional_disabled:
+                message = ('Additional Dots are not enabled for this ChatGPT account. '
+                           'Use an existing Dot from dots list. No Dot or Codex worker was created.')
             if method != 'GET' and error.code >= 500:
                 message += ' Outcome unknown; inspect dots list/activity before repeating the command.'
             raise ApiError(f'{message} (HTTP {error.code})', status=error.code) from None
@@ -137,11 +149,9 @@ class DotClient:
             suffix = ' The write may have succeeded; check dots list/activity before repeating it.' if method != 'GET' else ''
             raise ApiError('Unexpected response from the internal Dot API.' + suffix) from None
 
-    component = staticmethod(encode_id)
-
     @staticmethod
     def path(dot_id):
-        return '/tbo/' + DotClient.component(dot_id)
+        return '/tbo/' + encode_id(dot_id)
 
     def pages(self, path, limit=25, catalog=False):
         items, cursor, seen = [], '', set()

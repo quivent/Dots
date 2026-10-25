@@ -1,0 +1,24 @@
+[Unit]
+Description=Dots research Bank
+After=local-fs.target
+
+[Service]
+User=dots-bank
+Group=dots-ops
+ExecStart=/usr/bin/python3 /opt/dots-hub/research_bank.py
+Restart=on-failure
+RestartSec=3
+StateDirectory=dots-bank
+StateDirectoryMode=0700
+RuntimeDirectory=dots-bank
+RuntimeDirectoryMode=0750
+UMask=0077
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+RestrictAddressFamilies=AF_UNIX
+MemoryMax=256M
+
+[Install]
+WantedBy=multi-user.target
