@@ -158,6 +158,8 @@ is open. Replies print above the prompt without replacing your draft. Sending ru
 in the background; the status line distinguishes sending, waiting and receive
 connection errors. You can compose the next message immediately. If you press
 Enter while an earlier message is pending, the unsent draft stays in the editor.
+The terminal view uses a Qwen Code derived banner and composer layout. Its
+connection and runtime labels describe the selected ChatGPT Dot.
 `/wait` and `/refresh` request another receive check without blocking composition.
 The transcript supports mouse-wheel scrolling and Page Up/Page Down while the
 composer stays active. New replies do not move your reading position when you
@@ -167,10 +169,12 @@ code blocks use syntax highlighting for their stated language. Resizing rewraps
 the transcript to the available width.
 Outgoing terminal messages support up to 50,000 characters; the provider may
 apply its own limits. This does not change the provider's model context window.
-Pasting returns the transcript and composer to the bottom without sending the
-draft. Press Ctrl-S or click Send to send the entire block. Enter and Alt-Enter
-insert newlines, so even terminals that paste without bracketed-paste markers
-cannot send a document line by line. Commands such as `/quit` also use Ctrl-S. The
+Bracketed paste returns the transcript and composer to the bottom without sending
+the draft. Press Enter, Ctrl-S, or click Send to send the entire block. Shift+Enter,
+Ctrl+Enter, Ctrl+J, and Alt+Enter insert newlines when the terminal reports the
+modified key distinctly. Alt+Enter and Ctrl+J remain available when it does not.
+Terminals that paste without bracketed-paste markers can submit lines containing
+Enter; enable bracketed paste in your terminal when pasting multiline text. Commands such as `/quit` also use Enter. The
 footer shows the current character count. Multiline pasted paths or code that
 start with `/` are sent as message text rather than interpreted as commands.
 

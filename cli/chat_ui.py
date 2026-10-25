@@ -17,6 +17,8 @@ from rich.text import Text
 from .api import ApiError
 from .chat import MAX_MESSAGE_CHARS, terminal_text
 from .ui import console
+from .terminal_keys import modified_enter
+from .qwen_layout import HEADER_HEIGHT, header, input_rule
 
 
 class Conversation:
@@ -53,15 +55,25 @@ class Conversation:
             return Dimension.exact(min(6, rows) + 1
                                    + sum(fragment[1].count('\n') for fragment in self.toolbar()))
         composer = HSplit([session.layout.container], height=composer_height)
-        def title():
+        def banner():
             name = terminal_text(getattr(self.chat, 'name', 'Dot chat'))
             paused = (getattr(self.chat, 'profile', {}) or {}).get('is_paused')
-            return [('bold fg:#a7f3d0', name + (' · paused' if paused else ' · Dot chat'))]
+            lines = header(session.output.get_size().columns, name, self.status, paused)
+            return [('fg:#67e8f9' if i == 0 else 'fg:#a7f3d0' if i == 1
+                     else 'fg:#94a3b8', line + ('\n' if i < HEADER_HEIGHT - 1 else ''))
+                    for i, line in enumerate(lines)]
+        def top_rule():
+            name = terminal_text(getattr(self.chat, 'name', 'Dot chat'))
+            return [('fg:#67e8f9', input_rule(session.output.get_size().columns,
+                                            name[:32]))]
+        def bottom_rule():
+            return [('fg:#475569', input_rule(session.output.get_size().columns))]
         session.layout.container = HSplit([
-            Window(FormattedTextControl(title), height=1),
+            Window(FormattedTextControl(banner), height=HEADER_HEIGHT),
             history,
-            Window(FormattedTextControl('─'), height=1, char='─', style='fg:#475569'),
+            Window(FormattedTextControl(top_rule), height=1),
             composer,
+            Window(FormattedTextControl(bottom_rule), height=1),
         ])
         session.app.full_screen = True
         session.app.renderer.full_screen = True
@@ -75,10 +87,10 @@ class Conversation:
             self.screen.latest()
 
         @bindings.add('c-s', eager=True)
+        @bindings.add('enter', eager=True)
         def send(event):
             event.current_buffer.validate_and_handle()
 
-        @bindings.add('enter', eager=True)
         @bindings.add('c-j', eager=True)
         @bindings.add('escape', 'enter', eager=True)
         def newline(event):
@@ -264,7 +276,7 @@ class Conversation:
 
     def toolbar(self):
         reading = 'History · ' if self.screen and not self.screen.follow else ''
-        fragments = [('', reading + self.status + ' · PgUp/PgDn · Ctrl-End latest · /quit')]
+        fragments = [('fg:#94a3b8', reading + 'PgUp/PgDn history · Ctrl-End latest · /quit')]
         draft = self.session.default_buffer.text if self.session else ''
         fragments.append(('', '\n'))
         def send_click(event):
@@ -273,7 +285,8 @@ class Conversation:
             if self.session:
                 self.session.default_buffer.validate_and_handle()
         fragments.append(('bold fg:#67e8f9', '[Send]', send_click))
-        fragments.append(('', f' {len(draft):,}/{MAX_MESSAGE_CHARS:,} chars · Ctrl-S sends · Enter newline'))
+        fragments.append(('fg:#94a3b8',
+                          f' {len(draft):,}/{MAX_MESSAGE_CHARS:,} · Enter send · Shift+Enter newline · Ctrl-S send'))
         responses = getattr(self.chat, 'responses', {}).copy()
         if not responses:
             return fragments
@@ -312,6 +325,7 @@ class Conversation:
     async def run(self, session):
         self.session = session
         session.app.erase_when_done = True
+        restore_keys = modified_enter(session.input)
         bindings = self.install_transcript(session)
         accepted = asyncio.Queue()
         original_accept = session.default_buffer.accept_handler
@@ -324,7 +338,7 @@ class Conversation:
         async def edit():
             try:
                 await session.prompt_async(
-                    [('fg:#67e8f9 bold', 'You › ')], bottom_toolbar=self.toolbar,
+                    [('fg:#67e8f9 bold', '> ')], bottom_toolbar=self.toolbar,
                     mouse_support=True, key_bindings=bindings, multiline=True, refresh_interval=.25)
             except EOFError:
                 return 0
@@ -374,6 +388,7 @@ class Conversation:
                         session.default_buffer.text = text
                         session.default_buffer.cursor_position = len(text)
         finally:
+            restore_keys()
             self.closed = True
             self.wake.set()
             if next_text and not next_text.done():

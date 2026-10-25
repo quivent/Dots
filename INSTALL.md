@@ -30,7 +30,7 @@ python3 -m pip install ./dots_cli-0.2.14-py3-none-any.whl
 
 On Windows, use `py -m pip install .\dots_cli-0.2.14-py3-none-any.whl` for the wheel.
 
-After installation, run `dots` for the command menu or `dots setup` for the individual setup plan. Use `dots setup run` to execute prerequisites through account discovery. Use `dots --help` for other commands. Pip installs the package, formatting and OS credential-store dependencies, and the `dots` console command.
+After installation, run `dots` for the command menu or `dots setup` for the individual setup plan. Use `dots setup run` to execute prerequisites through account discovery. Use `dots --help` for other commands. Pip installs the package, terminal chat, formatting and OS credential-store dependencies, and the `dots` console command.
 A virtual environment is not an application requirement, and there is no separate venv setup step.
 
 ## Optional isolated install

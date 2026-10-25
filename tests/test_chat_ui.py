@@ -337,43 +337,35 @@ class ChatUITests(unittest.IsolatedAsyncioTestCase):
             input.send_text('/quit'); input.send_bytes(b'\x13')
             self.assertEqual(await task, 0)
 
-    async def test_alt_enter_inserts_newline_and_ctrl_s_sends_multiline_draft(self):
+    async def test_modified_enter_inserts_newline_and_enter_sends_multiline_draft(self):
         chat = FakeChat()
         with create_pipe_input() as input:
             session = PromptSession(input=input, output=DummyOutput())
             ui = Conversation(chat, .01); task = asyncio.create_task(ui.run(session))
             await self.until(lambda: session.app.is_running)
-            input.send_text('first'); input.send_bytes(b'\x1b\r'); input.send_text('second')
+            input.send_text('first'); input.send_bytes(b'\x1b[13;2u'); input.send_text('second')
             await self.until(lambda: session.default_buffer.text == 'first\nsecond')
             self.assertEqual(chat.posts, [])
-            input.send_bytes(b'\x13')
+            input.send_bytes(b'\r')
             await self.until(lambda: chat.posts == ['first\nsecond'])
-            input.send_text('/quit'); input.send_bytes(b'\x13')
+            input.send_text('/quit'); input.send_bytes(b'\r')
             self.assertEqual(await task, 0)
 
-    async def test_unmarked_paste_never_sends_or_executes_lines_even_when_slow(self):
-        for ending in ('\n', '\r'):
-            with self.subTest(ending=repr(ending)), create_pipe_input() as input:
-                chat = FakeChat()
-                session = PromptSession(input=input, output=DummyOutput())
-                ui = Conversation(chat, .01); task = asyncio.create_task(ui.run(session))
-                await self.until(lambda: session.app.is_running)
-                lines = ['/quit', '', '/status', '```python', 'print("keep all lines")', '```']
-                for line in lines:
-                    # A terminal can stream a paste over multiple reads without
-                    # bracketed-paste markers. Timing must never authorize send.
-                    input.send_text(line + ending)
-                    await asyncio.sleep(.03)
-                expected = '\n'.join(lines) + '\n'
-                await self.until(lambda: session.default_buffer.text == expected)
-                self.assertEqual(chat.posts, [])
-                self.assertFalse(ui.closed)
-                self.assertTrue(session.app.is_running)
-                send = next(f for f in ui.toolbar() if f[1] == '[Send]')
-                send[2](MouseEvent(Point(0, 0), MouseEventType.MOUSE_UP, MouseButton.LEFT, ()))
-                await self.until(lambda: chat.posts == [expected])
-                input.send_bytes(b'\x04')
-                self.assertEqual(await task, 0)
+    async def test_legacy_modified_enter_and_alt_enter_insert_newlines(self):
+        chat = FakeChat()
+        with create_pipe_input() as input:
+            session = PromptSession(input=input, output=DummyOutput())
+            ui = Conversation(chat, .01); task = asyncio.create_task(ui.run(session))
+            await self.until(lambda: session.app.is_running)
+            input.send_text('first'); input.send_bytes(b'\x1b[27;2;13~')
+            input.send_text('second'); input.send_bytes(b'\x1b\r')
+            input.send_text('third')
+            await self.until(lambda: session.default_buffer.text == 'first\nsecond\nthird')
+            self.assertEqual(chat.posts, [])
+            input.send_bytes(b'\r')
+            await self.until(lambda: chat.posts == ['first\nsecond\nthird'])
+            input.send_text('/quit'); input.send_bytes(b'\r')
+            self.assertEqual(await task, 0)
 
     async def test_chunked_bracketed_paste_waits_for_ctrl_s(self):
         chat = FakeChat()
@@ -496,10 +488,10 @@ with patch('cli.main.Launcher.clipboard_command',return_value={'argv':['fixture-
             read_until(b'[Copy #1]')
             os.write(master, b'retained draft')
             read_until(b'retained draft')
-            os.write(master, b'\x1b[<0;3;24M\x1b[<0;3;24m')
+            os.write(master, b'\x1b[<0;3;23M\x1b[<0;3;23m')
             read_until(b'COPIED_COMPLETE_RESPONSE_1')
-            # The inline button is on row 4: title, sender, Markdown body, Copy.
-            os.write(master, b'\x1b[<0;3;4M\x1b[<0;3;4m')
+            # The six-row banner precedes sender, body and Copy.
+            os.write(master, b'\x1b[<0;3;9M\x1b[<0;3;9m')
             read_until(b'COPIED_COMPLETE_RESPONSE_2')
             os.write(master, b'\x13')
             read_until(b'POSTED:retained draft')
@@ -559,7 +551,7 @@ interactive(Chat(),.03)
             if marker:
                 self.assertIn(marker, data, data[-2000:])
         try:
-            read_until(b'You')
+            read_until(b'>_ Dots')
             os.write(master, b'composing here')
             read_until(b'INCOMING_CHECK')
             os.write(master, b'\x13')
