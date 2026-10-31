@@ -275,7 +275,11 @@ async def connect(request):
                     if not isinstance(changes,dict) or (not scope.get('metadata') and not set(changes)<={'agents'}):raise ValueError('Publisher scope')
                     if 'agents' in changes and (not isinstance(changes['agents'],dict) or not set(changes['agents'])<=set(scope['agents'])):raise ValueError('Agent scope')
                     delta = state.publish(changes)
-                    if delta: state.broadcast({'type': 'update', 'revision': state.revision, 'changes': delta})
+                    if delta:
+                        wire=dict(delta)
+                        if 'agents' in wire:wire['agents']=state.agents()
+                        elif 'maestroHistory' in wire:wire['agents']={'maestro':{'relayOnline':True}}
+                        state.broadcast({'type':'update','revision':state.revision,'changes':wire})
                 elif value.get('type') == 'rpcResult':
                     identity=value.get('id');waiting=state.requests.get(identity)
                     if waiting and waiting[1] is ws:
@@ -302,6 +306,7 @@ async def connect(request):
             state.publishers -= 1
             state.publisher_channels.pop(ws,None)
             state.publisher_scopes.pop(ws,None)
+            state.broadcast({'type':'update','revision':state.revision,'changes':{'agents':{identity:{'relayOnline':any(identity in s['agents'] for s in state.publisher_scopes.values())} for identity in scope['agents']}}})
         for identity,(owner,publisher) in list(state.requests.items()):
             if owner is queue or publisher is ws:
                 state.requests.pop(identity,None)
