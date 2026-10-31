@@ -1,0 +1,22 @@
+[Unit]
+Description=VMFactory persistent sync hub
+After=network-online.target dots-chat-router.service
+Wants=network-online.target
+
+[Service]
+User=dots-ops
+Group=dots-ops
+WorkingDirectory=/opt/dots-hub
+ExecStart=/usr/bin/python3 /opt/dots-hub/vmfactory_hub.py
+Restart=on-failure
+RestartSec=2
+TimeoutStopSec=8
+UMask=0077
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/dots-ops/chat-hub
+MemoryMax=256M
+
+[Install]
+WantedBy=multi-user.target

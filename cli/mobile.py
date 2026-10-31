@@ -66,16 +66,35 @@ def relay_request(client, method, path, query, body):
 
 class MobileServer(ThreadingHTTPServer):
     daemon_threads = True
-    def __init__(self, address, token, client_factory=DotClient, pairing_directory=None):
+    def __init__(self, address, token, client_factory=DotClient, pairing_directory=None, codex=None):
         if not isinstance(token, str) or len(token) < 32 or not token.isascii():
             raise ValueError('Use a connection token of at least 32 ASCII characters.')
         self.token, self.client_factory = token, client_factory
+        self.codex = codex
         self.client_lock = threading.Lock()
         self.cached_client, self.client_expires = None, 0
         self.pairing = PairingAuthority(token, pairing_directory)
+        self.pairing_directory = pairing_directory
         super().__init__(address, MobileHandler)
 
     def account_request(self, method, path, query, body):
+        if path.startswith('/vmfactory/') and self.pairing_directory:
+            from .vmfactory import factory_request
+            return factory_request(method, path, query, body, self.pairing_directory)
+        if self.codex:
+            result = self.codex.request(method, path, query, body)
+            if result is not None:
+                return result
+            if method == 'GET' and path == '/tbo':
+                local = [] if query.get('cursor') else self.codex.catalog()
+                try:
+                    result = self.provider_request(method, path, query, body)
+                except ApiError:
+                    result = {'items': [], 'cursor': None, 'cloud_connection': 'unavailable'}
+                return dict(result, items=local + result.get('items', []))
+        return self.provider_request(method, path, query, body)
+
+    def provider_request(self, method, path, query, body):
         def current():
             with self.client_lock:
                 if self.cached_client is None or time.monotonic() >= self.client_expires:
@@ -279,7 +298,9 @@ def run(args, launcher=None):
         install_daemon(args, token_file)
         print('Open Dots Mac in the menu bar, then choose Pair iPhone.')
         return 0
-    with MobileServer((args.host, args.port), token, pairing_directory=token_file.parent) as server:
+    from .local_codex import LocalCodexBridge
+    codex = LocalCodexBridge.configured(token_file.parent)
+    with MobileServer((args.host, args.port), token, pairing_directory=token_file.parent, codex=codex) as server:
         if not args.quiet:
             print(f'Dots mobile listening on {args.host}:{server.server_port}', flush=True)
             print('Connect the iPhone over your private network or Tailscale.', flush=True)

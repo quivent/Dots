@@ -214,3 +214,15 @@ Automatic chat discovery
   Failed discovery preserves the visible catalog and local chat state and shows
   a non-blocking retry notice. Reads create no jobs or model turns. This is
   foreground synchronization, not APNs/FCM or background push notifications.
+
+Hosted agent retirement — 31 October 2026
+
+At the owner's request, Belle, Oscillator and Wavesmith were stopped and their
+systemd instances disabled. Their registry entries were moved to private
+/var/lib/dots-ops/retired-agents-*.json, with a before-retirement registry backup.
+Five rooms containing those agents were moved from rooms to retired_rooms in
+chats.sqlite. Saved Codex sessions, workspaces, messages and Bank entries remain.
+The router remains running for people chats, Bank and the Mac tunnel. Maestro
+is a separate local Mac session and remains available through that tunnel.
+
+VMFactory persistent studio sync and multi-server crew chat: see VMFACTORY.md.
