@@ -15,10 +15,11 @@ import time
 import uuid
 from aiohttp import web, ClientSession, ClientTimeout, WSMsgType
 from task_store import TaskStore
+from work_replica import WorkReplica
 
 DATA = Path('/var/lib/dots-ops/chat-hub/vmfactory-sync.sqlite')
 PUBLISHER = Path('/etc/dots-hub/vmfactory-publisher.sha256')
-KEYS = {'discoveries', 'tasks', 'roster', 'inventory', 'crew', 'worker', 'maestroHistory', 'agents'}
+KEYS = {'discoveries', 'tasks', 'roster', 'inventory', 'crew', 'worker', 'maestroHistory', 'agents', 'work', 'worlds', 'reports'}
 
 
 class State:
@@ -44,6 +45,13 @@ class State:
                     self.db.execute('DELETE FROM records WHERE key=?',(key,))
                 value = self.tasks.tasks() if key=='tasks' else self.tasks.worker()
                 if value is not None:self.data[key]=value
+        self.work = WorkReplica(self.db)
+        existing=self.data.get('work') or self.work.snapshot()
+        if existing:
+            self.data['work']=existing
+            with self.db:
+                self.work.save(existing)
+                self.db.execute("DELETE FROM records WHERE key='work'")
         self.revision = self.digest()
         self.sequence = self.db.execute('SELECT COALESCE(MAX(seq),0) FROM events').fetchone()[0]
         self.publishers = 0
@@ -94,6 +102,7 @@ class State:
         if not isinstance(changes, dict) or not set(changes) <= KEYS or not all(isinstance(v, dict) for v in changes.values()):
             raise ValueError('Unsupported published data')
         changes=dict(changes)
+        if 'work' in changes:changes['work']=self.work.apply(changes['work'],self.data.get('work'))
         if 'agents' in changes:changes['agents']=dict(self.data.get('agents',{}),**changes['agents'])
         delta = {k: v for k, v in changes.items() if self.data.get(k) != v}
         if not delta:
@@ -104,6 +113,7 @@ class State:
             for key, value in delta.items():
                 if key=='tasks':self.tasks.save_tasks(value)
                 elif key=='worker':self.tasks.save_worker(value)
+                elif key=='work':self.work.save(value)
                 else:self.db.execute('INSERT OR REPLACE INTO records VALUES(?,?)', (key, json.dumps(value, separators=(',', ':'))))
             cursor = self.db.execute('INSERT INTO events(revision,keys,received) VALUES(?,?,?)', (revision, json.dumps(sorted(delta)), time.time()))
             sequence = cursor.lastrowid
@@ -277,6 +287,7 @@ async def connect(request):
                     delta = state.publish(changes)
                     if delta:
                         wire=dict(delta)
+                        if 'work' in wire:wire['work']=changes['work']
                         if 'agents' in wire:wire['agents']=state.agents()
                         elif 'maestroHistory' in wire:wire['agents']={'maestro':{'relayOnline':True}}
                         state.broadcast({'type':'update','revision':state.revision,'changes':wire})

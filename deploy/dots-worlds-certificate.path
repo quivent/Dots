@@ -1,0 +1,7 @@
+[Unit]
+Description=Reload VMFactory viewer TLS after the existing certificate renews
+[Path]
+PathChanged=/var/lib/caddy/.local/share/caddy/certificates/acme-v02.api.letsencrypt.org-directory/dots.kosmos.institute/dots.kosmos.institute.crt
+Unit=dots-worlds-certificate.service
+[Install]
+WantedBy=multi-user.target

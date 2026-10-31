@@ -117,3 +117,15 @@ class WebSocketTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual((await remote.receive()).data,1008)
             self.assertNotIn('maestro',self.client.server.app['state'].data['agents'])
             await mac.close();await viewer.close()
+
+    async def test_shared_work_patch_stays_a_patch_on_the_wire(self):
+        viewer=await self.client.ws_connect('/v1/vmfactory/connect',headers={'Authorization':'Bearer viewer'});await viewer.receive_json()
+        publisher=await self.client.ws_connect('/v1/vmfactory/connect?role=publisher',headers={'Authorization':'Bearer publisher'});await publisher.receive_json()
+        work={'snapshot':True,'revision':1,'updated_epoch':10,'tables':{'tasks':{'T1':{'text':'Task'}},'runs':{},'lanes':{},'workers':{}}}
+        await publisher.send_json({'type':'publish','changes':{'work':work}});await viewer.receive_json();await publisher.receive_json()
+        patch={'snapshot':False,'base_revision':1,'revision':3,'updated_epoch':12,'changes':{'workers':{'cpu':{'connected':True}}},'deletes':{}}
+        await publisher.send_json({'type':'publish','changes':{'work':patch}})
+        self.assertEqual((await viewer.receive_json())['changes']['work'],patch);await publisher.receive_json()
+        response=await self.client.get('/v1/vmfactory/snapshot',headers={'Authorization':'Bearer viewer'})
+        self.assertEqual((await response.json())['work']['tables']['tasks']['T1']['text'],'Task')
+        await publisher.close();await viewer.close()

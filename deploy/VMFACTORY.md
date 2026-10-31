@@ -73,3 +73,33 @@ plan is currently imported from the project, not a substitute for central task
 leases/acceptance. Its dates and scope remain visible. Worker observations retain
 their original timestamp and never become fresh merely because a phone reconnects.
 JSON remains for plan metadata, flexible metric fields and API import/export.
+
+## Shared task database and world collection
+
+The publisher now reads Maestro's existing tracker-factory shared-tasks.sqlite
+in mode=ro. The main Tasks and Live Work homes use its tasks/runs/lanes/workers,
+not the supplemental 32-item authored workbench JSON. `work_replica.py` stores a
+read replica in shared_work_* SQLite tables. Base/end revisions, record changes
+and deletions prevent a worker heartbeat resending the full board. Gaps fail
+closed and recover from a snapshot; this replica never writes back or grants claims.
+The immutable report index is read from the same tracker runtime directory.
+
+Worlds use FMVision's shared exact-ID world index and preview catalog. Published
+web entrances and their original modules/assets are served through the private
+Mac Vite host (5176), outbound restricted SSH tunnel (relay18772), and
+world_gateway.py on https://dots.kosmos.institute:8444. dots-worlds.service runs
+as caddy solely so it can use that existing host's TLS certificate. Caddy continues
+to manage renewal; dots-worlds-certificate.path triggers SIGHUP certificate reload.
+The existing Caddy routes and TLS router remain unchanged.
+
+The dedicated world SSH key is restricted to remote loopback18772 forwarding,
+with no shell. Authorized-key options are restrict,port-forwarding,
+permitlisten="127.0.0.1:18772",command="/usr/bin/false". No public Mac listener
+or inbound Mac port is required. world_host.py installs the two Mac launch agents.
+
+The gateway accepts owner device authorization, gives WebKit an opaque Secure,
+HttpOnly session cookie, revalidates against the existing device registry every
+30 seconds, and strips authorization/cookies before contacting the world server.
+There is no agent input or model context in this path. Assets stream in bounded
+chunks and retain range/content-type headers. iPhone previews and world rendering
+are actual source-owned content; image contents are never supplied to a model.

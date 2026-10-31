@@ -1,0 +1,5 @@
+[Unit]
+Description=Reload the VMFactory world viewer certificate
+[Service]
+Type=oneshot
+ExecStart=/bin/systemctl kill --signal=HUP dots-worlds.service

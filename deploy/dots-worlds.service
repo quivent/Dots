@@ -1,0 +1,17 @@
+[Unit]
+Description=VMFactory authenticated world renderer gateway
+After=network-online.target
+[Service]
+User=caddy
+Group=caddy
+WorkingDirectory=/opt/dots-hub
+ExecStart=/usr/bin/python3 /opt/dots-hub/world_gateway.py
+Restart=on-failure
+RestartSec=2
+TimeoutStopSec=8
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+MemoryMax=256M
+[Install]
+WantedBy=multi-user.target
