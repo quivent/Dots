@@ -28,6 +28,16 @@ class StateTests(unittest.TestCase):
                 with self.assertRaises(ValueError): state.publish(invalid)
             state.close()
 
+    def test_activity_update_preserves_agent_identity_and_history(self):
+        with tempfile.TemporaryDirectory() as folder:
+            state=hub.State(Path(folder)/'state.sqlite')
+            state.publish({'agents':{'builder':{'name':'Rowan','history':{'items':[{'id':'m','created_at':1}]}}}})
+            state.publish({'agents':{'builder':{'working':True,'activityKnown':True}}})
+            self.assertEqual(state.data['agents']['builder']['name'],'Rowan')
+            self.assertEqual(len(state.data['agents']['builder']['history']['items']),1)
+            self.assertTrue(state.data['agents']['builder']['working'])
+            state.close()
+
 
 class WebSocketTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
@@ -117,6 +127,24 @@ class WebSocketTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual((await remote.receive()).data,1008)
             self.assertNotIn('maestro',self.client.server.app['state'].data['agents'])
             await mac.close();await viewer.close()
+
+    async def test_inspect_is_fail_closed_and_round_trips_only_to_capable_publisher(self):
+        viewer=await self.client.ws_connect('/v1/vmfactory/connect',headers={'Authorization':'Bearer viewer'})
+        await viewer.receive_json()
+        publisher=await self.client.ws_connect('/v1/vmfactory/connect?role=publisher',headers={'Authorization':'Bearer publisher'})
+        await publisher.receive_json()
+        request={'type':'request','id':str(uuid.uuid4()),'agentId':'maestro','operation':'inspect','body':{}}
+        await viewer.send_json(request)
+        self.assertEqual((await viewer.receive_json())['status'],501)
+        self.assertEqual(self.client.server.app['state'].requests,{})
+        await publisher.send_json({'type':'publish','changes':{'agents':{'maestro':{'capabilities':{'inspect':True}}}}})
+        await viewer.receive_json();await publisher.receive_json()
+        await viewer.send_json(request)
+        self.assertEqual(await publisher.receive_json(),request)
+        await publisher.send_json({'type':'rpcResult','id':request['id'],'status':200,'body':{'status':{'type':'idle'},'observationId':request['id']}})
+        self.assertEqual((await viewer.receive_json())['body']['observationId'],request['id'])
+        await publisher.receive_json()
+        await publisher.close();await viewer.close()
 
     async def test_shared_work_patch_stays_a_patch_on_the_wire(self):
         viewer=await self.client.ws_connect('/v1/vmfactory/connect',headers={'Authorization':'Bearer viewer'});await viewer.receive_json()

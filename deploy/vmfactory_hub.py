@@ -16,10 +16,12 @@ import uuid
 from aiohttp import web, ClientSession, ClientTimeout, WSMsgType
 from task_store import TaskStore
 from work_replica import WorkReplica
+from asset_store import AssetStore,MAX_BLOB
+from agent_notifications import AgentNotifications
 
 DATA = Path('/var/lib/dots-ops/chat-hub/vmfactory-sync.sqlite')
 PUBLISHER = Path('/etc/dots-hub/vmfactory-publisher.sha256')
-KEYS = {'discoveries', 'tasks', 'roster', 'inventory', 'crew', 'worker', 'maestroHistory', 'agents', 'work', 'worlds', 'reports'}
+KEYS = {'discoveries', 'tasks', 'roster', 'inventory', 'crew', 'worker', 'maestroHistory', 'agents', 'work', 'worlds', 'reports', 'assets'}
 
 
 class State:
@@ -37,6 +39,7 @@ class State:
         self.db.executescript('CREATE TABLE IF NOT EXISTS records(key TEXT PRIMARY KEY,payload TEXT); CREATE TABLE IF NOT EXISTS events(seq INTEGER PRIMARY KEY AUTOINCREMENT,revision TEXT,keys TEXT,received REAL);')
         for key, payload in self.db.execute('SELECT key,payload FROM records'):
             if key in KEYS: self.data[key] = json.loads(payload)
+        self.notifications = AgentNotifications(self.db)
         self.tasks = TaskStore(self.db)
         with self.db:
             for key in ('tasks','worker'):
@@ -102,8 +105,14 @@ class State:
         if not isinstance(changes, dict) or not set(changes) <= KEYS or not all(isinstance(v, dict) for v in changes.values()):
             raise ValueError('Unsupported published data')
         changes=dict(changes)
+        activity_ids={id for id,value in changes.get("agents",{}).items() if isinstance(value,dict) and ("working" in value or "activityKnown" in value)}
         if 'work' in changes:changes['work']=self.work.apply(changes['work'],self.data.get('work'))
-        if 'agents' in changes:changes['agents']=dict(self.data.get('agents',{}),**changes['agents'])
+        if 'agents' in changes:
+            merged={key:dict(value) for key,value in self.data.get('agents',{}).items()}
+            for identity,value in changes['agents'].items():
+                if not isinstance(value,dict):raise ValueError('Invalid agent record')
+                merged[identity]=dict(merged.get(identity,{}),**value)
+            changes['agents']=merged
         delta = {k: v for k, v in changes.items() if self.data.get(k) != v}
         if not delta:
             return {}
@@ -127,6 +136,7 @@ class State:
             for row in value.get('history',{}).get('items',[]):
                 key=agent+':'+str(row.get('id'))
                 if key in self.drafts and len(row.get('content',{}).get('text',''))>=len(self.drafts[key]['text']):del self.drafts[key]
+        if 'agents' in delta:self.notifications.observe({id:delta['agents'][id] for id in activity_ids})
         return delta
 
     def broadcast(self, value):
@@ -180,6 +190,31 @@ async def viewer_authorized(request):
         return False
 
 
+async def register_notifications(request):
+    if request.headers.get('Origin') or not await viewer_authorized(request):raise web.HTTPUnauthorized()
+    try:
+        return web.json_response(request.app['state'].notifications.register(bearer(request),await request.json()))
+    except (ValueError,KeyError,TypeError):raise web.HTTPBadRequest(text='Invalid notification registration')
+
+
+async def asset(request):
+    if request.headers.get('Origin'):raise web.HTTPForbidden()
+    scope=publisher_scope(bearer(request))
+    if request.method=='PUT':
+        if not scope or not scope.get('metadata'):raise web.HTTPUnauthorized()
+    elif not (scope and scope.get('metadata')) and not await viewer_authorized(request):raise web.HTTPUnauthorized()
+    store=request.app['assets']
+    try:
+        path=store.path(request.match_info['digest'])
+        if request.method=='PUT':
+            if request.content_length is not None and request.content_length>MAX_BLOB:raise web.HTTPRequestEntityTooLarge(max_size=MAX_BLOB,actual_size=request.content_length)
+            size=await store.receive(request.match_info['digest'],request.content.iter_chunked(128*1024))
+            return web.json_response({'bytes':size})
+        if not path.is_file():raise web.HTTPNotFound()
+        return web.FileResponse(path,headers={'Cache-Control':'private, max-age=31536000, immutable','ETag':'"'+path.name+'"','Content-Type':'application/octet-stream'})
+    except ValueError as error:raise web.HTTPBadRequest(text=str(error))
+
+
 async def snapshot(request):
     if request.headers.get('Origin') or not await viewer_authorized(request):
         raise web.HTTPUnauthorized()
@@ -217,7 +252,9 @@ async def connect(request):
     ws = web.WebSocketResponse(heartbeat=15, max_msg_size=2 * 1024 * 1024, compress=False)
     await ws.prepare(request)
     state = request.app['state']
-    if publishing: state.publishers += 1
+    if publishing:
+        state.publishers += 1
+        state.notifications.reset(scope["agents"])
     await ws.send_json({'type': 'ready', 'revision': state.revision, 'sequence': state.sequence, 'epoch': state.epoch, 'eventSequence': state.wire_sequence})
     queue = asyncio.Queue(maxsize=64)
     if publishing: state.publisher_channels[ws] = queue;state.publisher_scopes[ws]=scope
@@ -248,14 +285,17 @@ async def connect(request):
                     identity, operation, body = value.get('id'), value.get('operation'), value.get('body', {})
                     agent=value.get('agentId','maestro')
                     if not isinstance(agent,str) or not 0<len(agent)<=64:raise ValueError('Invalid agent')
-                    if value.get('type') != 'request' or not isinstance(identity, str) or str(uuid.UUID(identity)) != identity.lower() or operation not in ('send', 'stop') or not isinstance(body, dict):
+                    if value.get('type') != 'request' or not isinstance(identity, str) or str(uuid.UUID(identity)) != identity.lower() or operation not in ('send', 'stop', 'inspect') or not isinstance(body, dict):
                         raise ValueError('Unsupported request')
                     if operation == 'send':
                         content = body.get('content', {})
                         if (body.get('request_id') != identity or body.get('idempotency_token') != identity or body.get('work_approved') is not True or not isinstance(content, dict) or content.get('attachments') != [] or not isinstance(content.get('text'), str) or not content['text'].strip() or len(content['text']) > 12000):
                             raise ValueError('Invalid explicit message')
                     elif body:
-                        raise ValueError('Stop takes no fields')
+                        raise ValueError('Stop and inspect take no fields')
+                    if operation == 'inspect' and state.data.get('agents',{}).get(agent,{}).get('capabilities',{}).get('inspect') is not True:
+                        queue.put_nowait(json.dumps({'type':'rpcResult','id':identity,'status':501,'body':{'error':'This publisher does not support read-only inspection.'}}))
+                        continue
                     if identity in state.requests:
                         queue.put_nowait(json.dumps({'type':'rpcResult','id':identity,'status':409,'body':{'error':'This request is already in progress.'}}))
                         continue
@@ -315,6 +355,7 @@ async def connect(request):
         await asyncio.gather(authorization, return_exceptions=True)
         if publishing:
             state.publishers -= 1
+            state.notifications.reset(scope["agents"])
             state.publisher_channels.pop(ws,None)
             state.publisher_scopes.pop(ws,None)
             state.broadcast({'type':'update','revision':state.revision,'changes':{'agents':{identity:{'relayOnline':any(identity in s['agents'] for s in state.publisher_scopes.values())} for identity in scope['agents']}}})
@@ -333,7 +374,10 @@ async def connect(request):
 
 async def lifecycle(app):
     app['http'] = ClientSession(timeout=ClientTimeout(total=5))
+    push=asyncio.create_task(app['state'].notifications.run())
     yield
+    push.cancel()
+    await asyncio.gather(push,return_exceptions=True)
     await app['http'].close()
     app['state'].close()
 
@@ -341,7 +385,11 @@ async def lifecycle(app):
 def application(path=DATA):
     app = web.Application(client_max_size=2 * 1024 * 1024)
     app['state'] = State(path)
+    app['assets'] = AssetStore(Path(path).parent/'vmfactory-assets')
     app.cleanup_ctx.append(lifecycle)
+    app.router.add_post('/v1/vmfactory/notifications/device',register_notifications)
+    app.router.add_get('/v1/vmfactory/assets/{digest}',asset)
+    app.router.add_put('/v1/vmfactory/assets/{digest}',asset)
     app.router.add_get('/v1/vmfactory/snapshot', snapshot)
     app.router.add_get('/v1/vmfactory/maestro', history)
     app.router.add_get('/v1/vmfactory/agents/{agent}/history',history)

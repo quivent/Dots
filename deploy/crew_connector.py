@@ -5,10 +5,12 @@ No agent is created, no configuration is changed, no input is replayed.
 Run from a Dots checkout with websocket-client installed.
 """
 import argparse
+import ctypes
 import json
 import os
 from pathlib import Path
 import socket
+import struct
 import sys
 import threading
 import time
@@ -16,6 +18,12 @@ from urllib.parse import urlparse
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 import websocket
 from cli.local_codex import LocalCodexBridge, DaemonRPC, PREFIX
+from crew_work_report import read_report
+
+def working_status(status):
+ if not isinstance(status,dict):return {'working':False,'activityKnown':False,'activityObservedAt':time.time()}
+ kind=status.get('type');flags=status.get('activeFlags',[])
+ return {'working':kind=='active' and not any(f in ('waitingOnApproval','waitingOnUserInput') for f in flags),'activityKnown':kind in ('active','idle','notLoaded','systemError'),'activityObservedAt':time.time()}
 
 class Connector:
  def __init__(self,path):
@@ -36,9 +44,12 @@ class Connector:
    self.refresh.wait();self.refresh.clear()
    for identity,entry in self.entries.items():
     try:
-     with self.bridge.rpc.connection() as call:loaded=entry['thread_id'] in call('thread/loaded/list',{})['data']
+     with self.bridge.rpc.connection() as call:
+      loaded=entry['thread_id'] in call('thread/loaded/list',{})['data']
+      activity=working_status(call('thread/read',{'threadId':entry['thread_id'],'includeTurns':False})['thread'].get('status'))
      history=self.bridge.request('GET','/messaging/rooms/'+PREFIX+entry['thread_id']+'/messages',{},None)
-     self.send({'type':'publish','changes':{'agents':{identity:{'id':identity,'name':entry['name'],'server':self.spec['server'],'sessionLoaded':loaded,'history':history}}}})
+     report=read_report(Path(self.spec.get('work_reports','/workspace/FMVisual/telemetry')),identity)
+     self.send({'type':'publish','changes':{'agents':{identity:{'id':identity,'name':entry['name'],'nativeSessionId':entry['thread_id'],'server':self.spec['server'],'sessionLoaded':loaded,**activity,'capabilities':{'inspect':True},'workReport':report,'history':history}}}})
     except Exception:pass # Last-good central history survives host outages.
  def observe(self):
   delay=1
@@ -65,17 +76,39 @@ class Connector:
     while True:
      row=json.loads(ws.recv());params=row.get('params',{});identity=threads.get(params.get('threadId'))
      if not identity:continue
-     if row.get('method')=='item/agentMessage/delta':self.send({'type':'agentDelta','agentId':identity,'id':params['itemId'],'delta':params['delta']})
+     if row.get('method')=='thread/status/changed':self.send({'type':'publish','changes':{'agents':{identity:working_status(params.get('status'))}}})
+     elif row.get('method')=='item/agentMessage/delta':self.send({'type':'agentDelta','agentId':identity,'id':params['itemId'],'delta':params['delta']})
      elif row.get('method') in ('turn/started','turn/completed','item/completed'):self.refresh.set()
-   except Exception:time.sleep(delay);delay=min(15,delay*2)
+   except Exception:
+    try:self.send({'type':'publish','changes':{'agents':{id:working_status(None) for id in self.entries}}})
+    except Exception:pass
+    time.sleep(delay);delay=min(15,delay*2)
    finally:
     if ws:ws.close()
+ def watch_reports(self):
+  if not sys.platform.startswith('linux'):return
+  root=Path(self.spec.get('work_reports','/workspace/FMVisual/telemetry'));root.mkdir(parents=True,exist_ok=True)
+  libc=ctypes.CDLL(None,use_errno=True);fd=libc.inotify_init1(os.O_CLOEXEC)
+  if fd<0:return
+  try:
+   if libc.inotify_add_watch(fd,os.fsencode(root),0x8|0x80|0x200)<0:return
+   while True:
+    data=os.read(fd,65536);offset=0
+    while offset+16<=len(data):
+     _,_,_,length=struct.unpack_from('iIII',data,offset);name=data[offset+16:offset+16+length].split(b'\0',1)[0];offset+=16+length
+     if name.endswith(b'.json'):self.refresh.set()
+  finally:os.close(fd)
  def request(self,row):
   try:
    entry=self.entries[row['agentId']];operation=row['operation']
-   if operation not in ('send','stop'):raise ValueError('Unsupported operation')
-   path=('/messaging/rooms/' if operation=='send' else '/tbo/')+PREFIX+entry['thread_id']+('/messages' if operation=='send' else '/runtime/pause')
-   result=self.bridge.request('POST',path,{},row['body']);status=200
+   if operation not in ('send','stop','inspect'):raise ValueError('Unsupported operation')
+   if operation=='inspect':
+    with self.bridge.rpc.connection() as call:
+     thread=call('thread/read',{'threadId':entry['thread_id'],'includeTurns':False})['thread']
+    result={'agentId':row['agentId'],'threadId':entry['thread_id'],'observedAt':time.time(),'observationId':row['id'],'status':thread.get('status',{}),'workReport':read_report(Path(self.spec.get('work_reports','/workspace/FMVisual/telemetry')),row['agentId'])};status=200
+   else:
+    path=('/messaging/rooms/' if operation=='send' else '/tbo/')+PREFIX+entry['thread_id']+('/messages' if operation=='send' else '/runtime/pause')
+    result=self.bridge.request('POST',path,{},row['body']);status=200
   except Exception as error:
    status=getattr(error,'status',None) or 502;result={'error':str(error).replace('on the Mac','on its server') if status==409 else 'Native request rejected or delivery unconfirmed. No automatic retry was made.'}
   try:self.send({'type':'rpcResult','id':row['id'],'status':status,'body':result})
@@ -83,6 +116,7 @@ class Connector:
   self.refresh.set()
  def run(self):
   threading.Thread(target=self.history,daemon=True).start();threading.Thread(target=self.observe,daemon=True).start()
+  threading.Thread(target=self.watch_reports,daemon=True).start()
   delay=1
   while True:
    try:
