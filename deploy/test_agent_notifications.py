@@ -1,4 +1,6 @@
-import asyncio,json,sqlite3,tempfile,threading,time,unittest,uuid
+import asyncio,hashlib,json,sqlite3,tempfile,threading,time,unittest,uuid
+from types import SimpleNamespace
+from unittest.mock import patch
 from pathlib import Path
 from agent_notifications import AgentNotifications
 
@@ -45,6 +47,30 @@ class StopNotificationTests(unittest.TestCase):
  def test_invalid_grace_is_rejected(self):
   for value in [-1,301]:
    with self.assertRaises(ValueError):AgentNotifications(self.db,grace_seconds=value)
+
+class NotificationTopicTests(unittest.TestCase):
+ def test_registers_owned_topics_and_rejects_unrelated_apps(self):
+  db=sqlite3.connect(':memory:');service=AgentNotifications(db)
+  for topic in ['pictures.influx.vmfactory.mobile','influx.vision.fmvision']:
+   identity=str(uuid.uuid4());service.register('owner',{'id':identity,'token':uuid.uuid4().hex*2,'enabled':True,'topic':topic})
+   self.assertEqual(db.execute('SELECT topic FROM push_devices WHERE id=?',(identity,)).fetchone()[0],topic)
+  with self.assertRaises(ValueError):service.register('owner',{'id':str(uuid.uuid4()),'token':'ab'*32,'enabled':True,'topic':'another.app'})
+  db.close()
+ def test_migration_preserves_existing_devices_with_the_legacy_topic(self):
+  db=sqlite3.connect(':memory:');db.execute('CREATE TABLE push_devices(id TEXT PRIMARY KEY,owner_hash TEXT NOT NULL,token TEXT NOT NULL,environment TEXT NOT NULL,enabled INTEGER NOT NULL,updated REAL NOT NULL,UNIQUE(token,environment))')
+  db.execute('INSERT INTO push_devices VALUES(?,?,?,?,?,?)',('legacy','owner-hash','ab'*32,'sandbox',1,123));db.commit()
+  AgentNotifications(db)
+  self.assertEqual(db.execute('SELECT id,owner_hash,token,environment,enabled,updated,topic FROM push_devices').fetchone(),('legacy','owner-hash','ab'*32,'sandbox',1,123,'pictures.influx.vmfactory.mobile'))
+  db.close()
+ def test_each_notification_uses_the_registered_app_topic_without_real_pushes(self):
+  with tempfile.TemporaryDirectory() as directory:
+   allowed=Path(directory)/'owners.json';owner=hashlib.sha256(b'owner').hexdigest();allowed.write_text(json.dumps([owner]))
+   db=sqlite3.connect(':memory:');service=AgentNotifications(db);service.activity['a']=False;service.stop_events['a']='event'
+   for topic in ['pictures.influx.vmfactory.mobile','influx.vision.fmvision']:
+    with patch.object(service,'token',return_value='test-jwt'),patch('agent_notifications.subprocess.run',return_value=SimpleNamespace(returncode=0,stdout='{}\n200')) as curl:
+     state=service.send({'owner_hashes':str(allowed)},('device',owner,'ab'*32,'production',topic),('event','a','Artist',time.time()))
+     self.assertEqual(state,'sent');self.assertIn('apns-topic: '+topic,curl.call_args.kwargs['input'])
+   db.close()
 
 class NotificationWorkerTests(unittest.IsolatedAsyncioTestCase):
  async def asyncSetUp(self):

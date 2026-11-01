@@ -6,14 +6,17 @@ class AgentNotifications:
   if not 0<=grace_seconds<=300:raise ValueError("Invalid stopped-work grace period")
   self.db=db;self.config=Path(config);self.activity={};self.stops={};self.stop_events={};self.grace_seconds=grace_seconds;self.clock=clock;self.ready=asyncio.Event();self.jwt=None;self.jwt_time=0
   db.executescript('CREATE TABLE IF NOT EXISTS push_devices(id TEXT PRIMARY KEY,owner_hash TEXT NOT NULL,token TEXT NOT NULL,environment TEXT NOT NULL,enabled INTEGER NOT NULL,updated REAL NOT NULL,UNIQUE(token,environment)); CREATE TABLE IF NOT EXISTS agent_stops(id TEXT PRIMARY KEY,agent TEXT NOT NULL,name TEXT NOT NULL,at REAL NOT NULL); CREATE TABLE IF NOT EXISTS push_deliveries(event TEXT,device TEXT,state TEXT NOT NULL,attempts INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(event,device));')
+  if 'topic' not in {row[1] for row in db.execute('PRAGMA table_info(push_devices)')}:
+   with db:db.execute("ALTER TABLE push_devices ADD COLUMN topic TEXT NOT NULL DEFAULT 'pictures.influx.vmfactory.mobile'")
  def register(self,owner,body):
   import uuid
-  id=str(uuid.UUID(body['id']));token=body['token'];environment=body.get('environment','sandbox');enabled=body.get('enabled')
+  id=str(uuid.UUID(body['id']));token=body['token'];environment=body.get('environment','sandbox');enabled=body.get('enabled');topic=body.get('topic','pictures.influx.vmfactory.mobile')
+  if topic not in ('pictures.influx.vmfactory.mobile','influx.vision.fmvision'):raise ValueError('Unknown app notification topic')
   if not isinstance(token,str) or not re.fullmatch('[0-9a-f]{32,512}',token) or environment not in ('sandbox','production') or type(enabled) is not bool:raise ValueError('Invalid push registration')
   digest=hashlib.sha256(owner.encode()).hexdigest()
   existing=self.db.execute('SELECT owner_hash FROM push_devices WHERE id=?',(id,)).fetchone()
   if existing and existing[0]!=digest:raise ValueError('Push installation belongs to another pairing')
-  with self.db:self.db.execute('INSERT OR REPLACE INTO push_devices VALUES(?,?,?,?,?,?)',(id,digest,token,environment,int(enabled),time.time()))
+  with self.db:self.db.execute('INSERT OR REPLACE INTO push_devices(id,owner_hash,token,environment,enabled,updated,topic) VALUES(?,?,?,?,?,?,?)',(id,digest,token,environment,int(enabled),time.time(),topic))
   return {'registered':True,'pushConfigured':self.config.is_file()}
  def cancel_stop(self,agent):
   self.stops.pop(agent,None);self.stop_events.pop(agent,None)
@@ -55,13 +58,13 @@ class AgentNotifications:
   self.jwt=unsigned+'.'+encode(r.to_bytes(32,'big')+s.to_bytes(32,'big'));return self.jwt
  def send(self,config,device,event):
   if not event[0].startswith("fb:") and (self.activity.get(event[1]) is not False or self.stop_events.get(event[1])!=event[0]):return "cancelled"
-  id,owner,token,environment=device;identity,agent,name,at=event
+  id,owner,token,environment=device[:4];topic=device[4] if len(device)>4 else 'pictures.influx.vmfactory.mobile';identity,agent,name,at=event
   try:allowed=json.loads(Path(config.get('owner_hashes','/etc/dots-hub/device-hashes.json')).read_text())
   except (OSError,ValueError):return 'retry'
   if owner not in allowed:return 'revoked'
   host='api.sandbox.push.apple.com' if environment=='sandbox' else 'api.push.apple.com'
   payload={'aps':{'alert':{'title':name+' stopped working','body':'Open the conversation to see why.'},'sound':'default','thread-id':'crew-'+agent},'agentId':agent,'eventId':identity}
-  lines={'url':'https://'+host+'/3/device/'+token,'request':'POST','header':['authorization: bearer '+self.token(config),'apns-topic: pictures.influx.vmfactory.mobile','apns-push-type: alert','apns-priority: 10','apns-expiration: '+str(int(at)+3600),'apns-collapse-id: '+identity],'data':json.dumps(payload,separators=(',',':')),'write-out':'\n%{http_code}'}
+  lines={'url':'https://'+host+'/3/device/'+token,'request':'POST','header':['authorization: bearer '+self.token(config),'apns-topic: '+topic,'apns-push-type: alert','apns-priority: 10','apns-expiration: '+str(int(at)+3600),'apns-collapse-id: '+identity],'data':json.dumps(payload,separators=(',',':')),'write-out':'\n%{http_code}'}
   text='\n'.join(k+' = '+json.dumps(v) for k,value in lines.items() for v in (value if isinstance(value,list) else [value]))
   r=subprocess.run(['curl','--http2','--silent','--show-error','--max-time','10','--config','-'],input=text,capture_output=True,text=True,timeout=15)
   code=r.stdout.strip().split('\n')[-1]
@@ -80,10 +83,10 @@ class AgentNotifications:
    if not self.config.is_file():continue
    try:config=json.loads(self.config.read_text())
    except (OSError,ValueError):continue
-   rows=self.db.execute("SELECT e.id,e.agent,e.name,e.at,d.id,d.owner_hash,d.token,d.environment,p.attempts FROM push_deliveries p JOIN agent_stops e ON e.id=p.event JOIN push_devices d ON d.id=p.device WHERE p.state='pending' AND d.enabled=1 ORDER BY e.at LIMIT 100").fetchall()
+   rows=self.db.execute("SELECT e.id,e.agent,e.name,e.at,d.id,d.owner_hash,d.token,d.environment,p.attempts,d.topic FROM push_deliveries p JOIN agent_stops e ON e.id=p.event JOIN push_devices d ON d.id=p.device WHERE p.state='pending' AND d.enabled=1 ORDER BY e.at LIMIT 100").fetchall()
    retry=False
    for row in rows:
-    event=row[:4];device=row[4:8];attempts=row[8]
+    event=row[:4];device=row[4:8]+(row[9],);attempts=row[8]
     if not event[0].startswith('fb:') and (self.activity.get(event[1]) is not False or self.stop_events.get(event[1])!=event[0]):state='cancelled'
     elif time.time()-event[3]>3600:state='expired'
     elif attempts>=6:state='failed'
