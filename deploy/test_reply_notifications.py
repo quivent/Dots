@@ -28,4 +28,16 @@ class ReplyNotifications(unittest.TestCase):
    self.assertFalse(service.reply_current(event))
    self.assertEqual(db.execute('SELECT count(*) FROM agent_stops').fetchone()[0],2)
   db.close()
+
+ def test_hub_publish_emits_new_reply_even_when_unread_count_stays_one(self):
+  from vmfactory_hub import State
+  with tempfile.TemporaryDirectory() as directory:
+   state=State(Path(directory)/'hub.sqlite')
+   session=str(uuid.uuid4())
+   state.publish({'roster':{'crew':[{'id':'aven','sessionId':session}]},'agents':{'aven':{'nativeSessionId':session,'name':'Aven','history':{'items':[]}}}})
+   state.notifications.register('owner',{'id':str(uuid.uuid4()),'token':'ab'*32,'enabled':True})
+   def rows(ids):return {'agents':{'aven':{'nativeSessionId':session,'history':{'items':[{'id':i,'role':'assistant','content':{'text':'same'}} for i in ids]}}}}
+   state.publish(rows(['one']));state.publish(rows(['one','two']));state.publish(rows(['one','two']))
+   self.assertEqual(state.db.execute("SELECT count(*) FROM agent_stops WHERE id LIKE 'reply:%'").fetchone()[0],2)
+   state.close()
 if __name__=='__main__':unittest.main()
