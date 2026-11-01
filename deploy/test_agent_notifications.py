@@ -47,6 +47,27 @@ class StopNotificationTests(unittest.TestCase):
  def test_invalid_grace_is_rejected(self):
   for value in [-1,301]:
    with self.assertRaises(ValueError):AgentNotifications(self.db,grace_seconds=value)
+ def test_response_only_policy_suppresses_ordinary_stops_for_all_agents(self):
+  with tempfile.TemporaryDirectory() as directory:
+   policy=Path(directory)/'policy.json';policy.write_text(json.dumps({'responseOnly':True,'stopAlertsDisabledFor':['aven']}));self.service.stop_policy=policy
+   for agent in ['aven','iris','new-agent']:
+    self.service.observe({agent:{'working':True,'activityKnown':True}})
+    self.service.observe({agent:{'working':False,'activityKnown':True}})
+   self.advance(60);self.assertEqual(self.count(),0)
+ def test_response_only_policy_cancels_pending_stops_but_keeps_requests(self):
+  with tempfile.TemporaryDirectory() as directory:
+   policy=Path(directory)/'policy.json';policy.write_text('{}');self.service.stop_policy=policy
+   self.emit(True);self.emit(False);self.advance(30)
+   stop=self.db.execute('SELECT id,agent,name,at FROM agent_stops').fetchone()
+   with self.db:
+    self.db.execute('INSERT INTO agent_stops VALUES(?,?,?,?)',('fb:question','rowan','Rowan',time.time()))
+    self.db.execute("INSERT INTO push_deliveries(event,device,state) SELECT 'fb:question',id,'pending' FROM push_devices")
+   policy.write_text(json.dumps({'responseOnly':True}));self.service.observe({'rowan':{'working':False,'activityKnown':True}})
+   states=dict(self.db.execute('SELECT event,state FROM push_deliveries'))
+   self.assertEqual(states[stop[0]],'cancelled');self.assertEqual(states['fb:question'],'pending')
+   with patch('agent_notifications.subprocess.run') as provider:
+    self.assertEqual(self.service.send({},('device','owner','ab'*32,'sandbox','pictures.influx.vmfactory.mobile'),stop),'cancelled')
+    provider.assert_not_called()
 
 class NotificationTopicTests(unittest.TestCase):
  def test_registers_owned_topics_and_rejects_unrelated_apps(self):

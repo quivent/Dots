@@ -11,7 +11,10 @@ class AgentNotifications:
  def stop_alert_enabled(self,agent):
   # Operator-owned policy is separate from publisher-controlled activity/roles.
   # Re-read for each boundary so a changed exemption also cancels queued retries.
-  try:disabled=json.loads(self.stop_policy.read_text()).get('stopAlertsDisabledFor',[])
+  try:
+   policy=json.loads(self.stop_policy.read_text())
+   if policy.get('responseOnly') is True:return False
+   disabled=policy.get('stopAlertsDisabledFor',[])
   except (OSError,ValueError,AttributeError):disabled=[]
   return not (isinstance(disabled,list) and agent in disabled)
  def register(self,owner,body):
