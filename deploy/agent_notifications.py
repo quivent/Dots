@@ -73,7 +73,7 @@ class AgentNotifications:
   identity,agent,name,at=event
   badge=max(0,int(self.badge_count())) if hasattr(self,'badge_count') else 0
   if identity.startswith('badge:'):return {'aps':{'badge':badge},'kind':'badge','eventId':identity}
-  if identity.startswith('reply:'):return {'aps':{'alert':{'title':name+' replied','body':'Open the conversation to read the reply.'},'sound':'default','thread-id':'crew-'+agent,'badge':badge},'kind':'reply','agentId':agent,'eventId':identity}
+  if identity.startswith('reply:'):return {'aps':{'alert':{'title':name+' replied','body':'Open the conversation to read the reply.'},'sound':'default','thread-id':'crew-'+agent,'badge':badge},'kind':'reply','agentId':agent,'nativeSessionId':identity.split(':')[1],'eventId':identity}
   return {'aps':{'alert':{'title':name+' stopped working','body':'Open the conversation to see why.'},'sound':'default','thread-id':'crew-'+agent,'badge':badge},'agentId':agent,'eventId':identity}
  def observe_replies(self,agents,roster):
   from crew_badges import CrewBadges
@@ -83,7 +83,7 @@ class AgentNotifications:
    previous=self.reply_seen.get(key);self.reply_seen[key]=current
    if previous is None:continue # Baseline/reconnect never re-alerts existing history.
    for message in sorted(current-previous):
-    identity='reply:'+hashlib.sha256(json.dumps([agent,session,message],separators=(',',':')).encode()).hexdigest()
+    identity='reply:'+session+':'+hashlib.sha256(json.dumps([agent,session,message],separators=(',',':')).encode()).hexdigest()
     with self.db:
      created=self.db.execute('INSERT OR IGNORE INTO agent_stops VALUES(?,?,?,?)',(identity,agent,row.get('name') or agent,time.time())).rowcount
      if created:self.db.execute("INSERT INTO push_deliveries(event,device,state) SELECT ?,id,'pending' FROM push_devices WHERE enabled=1",(identity,))
@@ -96,7 +96,10 @@ class AgentNotifications:
    self.db.execute('INSERT INTO agent_stops VALUES(?,?,?,?)',(identity,'__badge__','Conversation badge',time.time()))
    self.db.execute("INSERT INTO push_deliveries(event,device,state) SELECT ?,id,'pending' FROM push_devices WHERE enabled=1",(identity,))
   self.ready.set()
+ def reply_current(self,event):
+  return not event[0].startswith('reply:') or (event[1],event[0].split(':')[1]) in self.reply_seen
  def send(self,config,device,event):
+  if not self.reply_current(event):return 'cancelled'
   if not event[0].startswith(('fb:','badge:','reply:')) and not self.stop_alert_enabled(event[1]):return 'cancelled'
   if not event[0].startswith(('fb:','badge:','reply:')) and (self.activity.get(event[1]) is not False or self.stop_events.get(event[1])!=event[0]):return "cancelled"
   id,owner,token,environment=device[:4];topic=device[4] if len(device)>4 else 'pictures.influx.vmfactory.mobile';identity,agent,name,at=event
@@ -128,7 +131,8 @@ class AgentNotifications:
    retry=False
    for row in rows:
     event=row[:4];device=row[4:8]+(row[9],);attempts=row[8]
-    if not event[0].startswith(('fb:','badge:','reply:')) and (not self.stop_alert_enabled(event[1]) or self.activity.get(event[1]) is not False or self.stop_events.get(event[1])!=event[0]):state='cancelled'
+    if not self.reply_current(event):state='cancelled'
+    elif not event[0].startswith(('fb:','badge:','reply:')) and (not self.stop_alert_enabled(event[1]) or self.activity.get(event[1]) is not False or self.stop_events.get(event[1])!=event[0]):state='cancelled'
     elif time.time()-event[3]>3600:state='expired'
     elif attempts>=6:state='failed'
     else:
