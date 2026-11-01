@@ -71,6 +71,7 @@ class State:
         self.wire_sequence = 0
         self.epoch = secrets.token_hex(12)
         self.last_badges = self.badge_summary()
+        self.notifications.observe_replies(self.badge_agents(),self.data.get('roster',{}))
 
     def close(self):
         self.db.close()
@@ -103,6 +104,7 @@ class State:
         return agents
 
     def refresh_badges(self):
+        self.notifications.observe_replies(self.badge_agents(),self.data.get('roster',{}))
         value=self.badge_summary()
         if value==self.last_badges:return
         previous=self.last_badges

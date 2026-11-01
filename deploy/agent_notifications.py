@@ -4,7 +4,7 @@ from pathlib import Path
 class AgentNotifications:
  def __init__(self,db,config=Path('/etc/dots-hub/vmfactory-apns.json'),grace_seconds=30,clock=time.monotonic,stop_policy=Path('/etc/dots-hub/agent-notification-policy.json')):
   if not 0<=grace_seconds<=300:raise ValueError("Invalid stopped-work grace period")
-  self.db=db;self.config=Path(config);self.stop_policy=Path(stop_policy);self.activity={};self.stops={};self.stop_events={};self.grace_seconds=grace_seconds;self.clock=clock;self.ready=asyncio.Event();self.jwt=None;self.jwt_time=0
+  self.db=db;self.config=Path(config);self.stop_policy=Path(stop_policy);self.reply_seen={};self.activity={};self.stops={};self.stop_events={};self.grace_seconds=grace_seconds;self.clock=clock;self.ready=asyncio.Event();self.jwt=None;self.jwt_time=0
   db.executescript('CREATE TABLE IF NOT EXISTS push_devices(id TEXT PRIMARY KEY,owner_hash TEXT NOT NULL,token TEXT NOT NULL,environment TEXT NOT NULL,enabled INTEGER NOT NULL,updated REAL NOT NULL,UNIQUE(token,environment)); CREATE TABLE IF NOT EXISTS agent_stops(id TEXT PRIMARY KEY,agent TEXT NOT NULL,name TEXT NOT NULL,at REAL NOT NULL); CREATE TABLE IF NOT EXISTS push_deliveries(event TEXT,device TEXT,state TEXT NOT NULL,attempts INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(event,device));')
   if 'topic' not in {row[1] for row in db.execute('PRAGMA table_info(push_devices)')}:
    with db:db.execute("ALTER TABLE push_devices ADD COLUMN topic TEXT NOT NULL DEFAULT 'pictures.influx.vmfactory.mobile'")
@@ -30,7 +30,7 @@ class AgentNotifications:
  def cancel_stop(self,agent):
   self.stops.pop(agent,None);self.stop_events.pop(agent,None)
   # Explicit feedback requests have separate identities and remain immediate.
-  with self.db:self.db.execute("UPDATE push_deliveries SET state='cancelled' WHERE state='pending' AND event IN (SELECT id FROM agent_stops WHERE agent=? AND id NOT LIKE 'fb:%' AND id NOT LIKE 'badge:%')",(agent,))
+  with self.db:self.db.execute("UPDATE push_deliveries SET state='cancelled' WHERE state='pending' AND event IN (SELECT id FROM agent_stops WHERE agent=? AND id NOT LIKE 'fb:%' AND id NOT LIKE 'badge:%' AND id NOT LIKE 'reply:%')",(agent,))
  def reset(self,agents):
   for id in agents:self.activity.pop(id,None);self.cancel_stop(id)
   self.ready.set()
@@ -73,7 +73,22 @@ class AgentNotifications:
   identity,agent,name,at=event
   badge=max(0,int(self.badge_count())) if hasattr(self,'badge_count') else 0
   if identity.startswith('badge:'):return {'aps':{'badge':badge},'kind':'badge','eventId':identity}
+  if identity.startswith('reply:'):return {'aps':{'alert':{'title':name+' replied','body':'Open the conversation to read the reply.'},'sound':'default','thread-id':'crew-'+agent,'badge':badge},'kind':'reply','agentId':agent,'eventId':identity}
   return {'aps':{'alert':{'title':name+' stopped working','body':'Open the conversation to see why.'},'sound':'default','thread-id':'crew-'+agent,'badge':badge},'agentId':agent,'eventId':identity}
+ def observe_replies(self,agents,roster):
+  from crew_badges import CrewBadges
+  active=set()
+  for agent,(session,row) in CrewBadges.members(agents,roster).items():
+   key=(agent,session);active.add(key);current=CrewBadges.incoming(row)
+   previous=self.reply_seen.get(key);self.reply_seen[key]=current
+   if previous is None:continue # Baseline/reconnect never re-alerts existing history.
+   for message in sorted(current-previous):
+    identity='reply:'+hashlib.sha256(json.dumps([agent,session,message],separators=(',',':')).encode()).hexdigest()
+    with self.db:
+     created=self.db.execute('INSERT OR IGNORE INTO agent_stops VALUES(?,?,?,?)',(identity,agent,row.get('name') or agent,time.time())).rowcount
+     if created:self.db.execute("INSERT INTO push_deliveries(event,device,state) SELECT ?,id,'pending' FROM push_devices WHERE enabled=1",(identity,))
+    if created:self.ready.set()
+  self.reply_seen={key:value for key,value in self.reply_seen.items() if key in active}
  def enqueue_badge(self,count):
   identity='badge:'+secrets.token_hex(16)
   with self.db:
@@ -82,8 +97,8 @@ class AgentNotifications:
    self.db.execute("INSERT INTO push_deliveries(event,device,state) SELECT ?,id,'pending' FROM push_devices WHERE enabled=1",(identity,))
   self.ready.set()
  def send(self,config,device,event):
-  if not event[0].startswith(('fb:','badge:')) and not self.stop_alert_enabled(event[1]):return 'cancelled'
-  if not event[0].startswith(('fb:','badge:')) and (self.activity.get(event[1]) is not False or self.stop_events.get(event[1])!=event[0]):return "cancelled"
+  if not event[0].startswith(('fb:','badge:','reply:')) and not self.stop_alert_enabled(event[1]):return 'cancelled'
+  if not event[0].startswith(('fb:','badge:','reply:')) and (self.activity.get(event[1]) is not False or self.stop_events.get(event[1])!=event[0]):return "cancelled"
   id,owner,token,environment=device[:4];topic=device[4] if len(device)>4 else 'pictures.influx.vmfactory.mobile';identity,agent,name,at=event
   try:allowed=json.loads(Path(config.get('owner_hashes','/etc/dots-hub/device-hashes.json')).read_text())
   except (OSError,ValueError):return 'retry'
@@ -113,7 +128,7 @@ class AgentNotifications:
    retry=False
    for row in rows:
     event=row[:4];device=row[4:8]+(row[9],);attempts=row[8]
-    if not event[0].startswith(('fb:','badge:')) and (not self.stop_alert_enabled(event[1]) or self.activity.get(event[1]) is not False or self.stop_events.get(event[1])!=event[0]):state='cancelled'
+    if not event[0].startswith(('fb:','badge:','reply:')) and (not self.stop_alert_enabled(event[1]) or self.activity.get(event[1]) is not False or self.stop_events.get(event[1])!=event[0]):state='cancelled'
     elif time.time()-event[3]>3600:state='expired'
     elif attempts>=6:state='failed'
     else:
