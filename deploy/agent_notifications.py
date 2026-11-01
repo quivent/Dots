@@ -2,8 +2,9 @@
 import asyncio,base64,hashlib,json,re,secrets,subprocess,time
 from pathlib import Path
 class AgentNotifications:
- def __init__(self,db,config=Path('/etc/dots-hub/vmfactory-apns.json')):
-  self.db=db;self.config=Path(config);self.activity={};self.ready=asyncio.Event();self.jwt=None;self.jwt_time=0
+ def __init__(self,db,config=Path('/etc/dots-hub/vmfactory-apns.json'),grace_seconds=30,clock=time.monotonic):
+  if not 0<=grace_seconds<=300:raise ValueError("Invalid stopped-work grace period")
+  self.db=db;self.config=Path(config);self.activity={};self.stops={};self.stop_events={};self.grace_seconds=grace_seconds;self.clock=clock;self.ready=asyncio.Event();self.jwt=None;self.jwt_time=0
   db.executescript('CREATE TABLE IF NOT EXISTS push_devices(id TEXT PRIMARY KEY,owner_hash TEXT NOT NULL,token TEXT NOT NULL,environment TEXT NOT NULL,enabled INTEGER NOT NULL,updated REAL NOT NULL,UNIQUE(token,environment)); CREATE TABLE IF NOT EXISTS agent_stops(id TEXT PRIMARY KEY,agent TEXT NOT NULL,name TEXT NOT NULL,at REAL NOT NULL); CREATE TABLE IF NOT EXISTS push_deliveries(event TEXT,device TEXT,state TEXT NOT NULL,attempts INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(event,device));')
  def register(self,owner,body):
   import uuid
@@ -14,20 +15,36 @@ class AgentNotifications:
   if existing and existing[0]!=digest:raise ValueError('Push installation belongs to another pairing')
   with self.db:self.db.execute('INSERT OR REPLACE INTO push_devices VALUES(?,?,?,?,?,?)',(id,digest,token,environment,int(enabled),time.time()))
   return {'registered':True,'pushConfigured':self.config.is_file()}
+ def cancel_stop(self,agent):
+  self.stops.pop(agent,None);self.stop_events.pop(agent,None)
+  # Explicit feedback requests have separate identities and remain immediate.
+  with self.db:self.db.execute("UPDATE push_deliveries SET state='cancelled' WHERE state='pending' AND event IN (SELECT id FROM agent_stops WHERE agent=? AND id NOT LIKE 'fb:%')",(agent,))
  def reset(self,agents):
-  for id in agents:self.activity.pop(id,None)
+  for id in agents:self.activity.pop(id,None);self.cancel_stop(id)
+  self.ready.set()
  def observe(self,agents):
   for id,row in agents.items():
-   if row.get('activityKnown') is not True:self.activity.pop(id,None);continue
    current=row.get('working')
-   if type(current) is not bool:continue
+   if row.get('activityKnown') is not True or row.get('relayOnline') is False or type(current) is not bool:
+    self.reset([id]);continue
    previous=self.activity.get(id);self.activity[id]=current
-   if previous is not True or current is not False:continue
-   event=secrets.token_hex(16);name=row.get('name') or ('Maestro' if id=='maestro' else id);now=time.time()
+   if current:
+    if previous is not True or id in self.stops:self.cancel_stop(id)
+    continue
+   if previous is True:
+    name=row.get('name') or ('Maestro' if id=='maestro' else id)
+    self.stops[id]=(secrets.token_hex(16),id,name,time.time(),self.clock()+self.grace_seconds)
+    self.stop_events[id]=self.stops[id][0]
+  self.ready.set()
+ def flush_stops(self):
+  now=self.clock()
+  for id,candidate in list(self.stops.items()):
+   if candidate[4]>now:continue
+   self.stops.pop(id,None)
+   if self.activity.get(id) is not False or self.stop_events.get(id)!=candidate[0]:continue
    with self.db:
-    self.db.execute('INSERT INTO agent_stops VALUES(?,?,?,?)',(event,id,name,now))
-    self.db.execute("INSERT INTO push_deliveries(event,device,state) SELECT ?,id,'pending' FROM push_devices WHERE enabled=1",(event,))
-   self.ready.set()
+    self.db.execute('INSERT INTO agent_stops VALUES(?,?,?,?)',candidate[:4])
+    self.db.execute("INSERT INTO push_deliveries(event,device,state) SELECT ?,id,'pending' FROM push_devices WHERE enabled=1",(candidate[0],))
  def token(self,config):
   if self.jwt and time.time()-self.jwt_time<1200:return self.jwt
   from cryptography.hazmat.primitives import hashes,serialization
@@ -37,6 +54,7 @@ class AgentNotifications:
   key=serialization.load_pem_private_key(Path(config['key_path']).read_bytes(),None);r,s=utils.decode_dss_signature(key.sign(unsigned.encode(),ec.ECDSA(hashes.SHA256())))
   self.jwt=unsigned+'.'+encode(r.to_bytes(32,'big')+s.to_bytes(32,'big'));return self.jwt
  def send(self,config,device,event):
+  if not event[0].startswith("fb:") and (self.activity.get(event[1]) is not False or self.stop_events.get(event[1])!=event[0]):return "cancelled"
   id,owner,token,environment=device;identity,agent,name,at=event
   try:allowed=json.loads(Path(config.get('owner_hashes','/etc/dots-hub/device-hashes.json')).read_text())
   except (OSError,ValueError):return 'retry'
@@ -55,7 +73,10 @@ class AgentNotifications:
  async def run(self):
   self.ready.set()
   while True:
-   await self.ready.wait();self.ready.clear()
+   delay=max(0,min(row[4] for row in self.stops.values())-self.clock()) if self.stops else None
+   try:await asyncio.wait_for(self.ready.wait(),timeout=delay)
+   except asyncio.TimeoutError:pass
+   self.ready.clear();self.flush_stops()
    if not self.config.is_file():continue
    try:config=json.loads(self.config.read_text())
    except (OSError,ValueError):continue
@@ -63,13 +84,14 @@ class AgentNotifications:
    retry=False
    for row in rows:
     event=row[:4];device=row[4:8];attempts=row[8]
-    if time.time()-event[3]>3600:state='expired'
+    if not event[0].startswith('fb:') and (self.activity.get(event[1]) is not False or self.stop_events.get(event[1])!=event[0]):state='cancelled'
+    elif time.time()-event[3]>3600:state='expired'
     elif attempts>=6:state='failed'
     else:
      try:state=await asyncio.to_thread(self.send,config,device,event)
      except Exception:state='retry'
     with self.db:
-     self.db.execute('UPDATE push_deliveries SET state=?,attempts=attempts+1 WHERE event=? AND device=?',('pending' if state=='retry' else state,event[0],device[0]))
+     self.db.execute("UPDATE push_deliveries SET state=?,attempts=attempts+1 WHERE event=? AND device=? AND state='pending'",('pending' if state=='retry' else state,event[0],device[0]))
      if state=='invalid-device':self.db.execute('UPDATE push_devices SET enabled=0 WHERE id=?',(device[0],))
     retry=retry or state=='retry'
    if retry:asyncio.get_running_loop().call_later(15,self.ready.set)
