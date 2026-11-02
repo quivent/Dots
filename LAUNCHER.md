@@ -151,39 +151,20 @@ The guide saves entered notes in the private runtime file `dots-trials.md`, crea
 
 URL launch failures return an error. If the desktop Dot protocol handler fails, onboarding tries the HTTPS route. A successful launch means the request was accepted, not that navigation or onboarding finished. Activity opening uses the same launch/error handling and reports fetched activity separately from navigation failure.
 
-### Receiving while composing
+### Qwen terminal interface
 
-Interactive `dots chat` keeps checking for incoming messages while the input line
-is open. Replies print above the prompt without replacing your draft. Sending runs
-in the background; the status line distinguishes sending, waiting and receive
-connection errors. You can compose the next message immediately. If you press
-Enter while an earlier message is pending, the unsent draft stays in the editor.
-The terminal view uses a Qwen Code derived banner and composer layout. Its
-connection and runtime labels describe the selected ChatGPT Dot.
-`/wait` and `/refresh` request another receive check without blocking composition.
-The transcript supports mouse-wheel scrolling and Page Up/Page Down while the
-composer stays active. New replies do not move your reading position when you
-have scrolled up. Ctrl-End returns to the latest messages and follows new replies.
-Messages render Markdown headings, lists, links, tables and fenced code blocks;
-code blocks use syntax highlighting for their stated language. Resizing rewraps
-the transcript to the available width.
-Outgoing terminal messages support up to 50,000 characters; the provider may
-apply its own limits. This does not change the provider's model context window.
-Bracketed paste returns the transcript and composer to the bottom without sending
-the draft. Press Enter, Ctrl-S, or click Send to send the entire block. Shift+Enter,
-Ctrl+Enter, Ctrl+J, and Alt+Enter insert newlines when the terminal reports the
-modified key distinctly. Alt+Enter and Ctrl+J remain available when it does not.
-Terminals that paste without bracketed-paste markers can submit lines containing
-Enter; enable bracketed paste in your terminal when pasting multiline text. Commands such as `/quit` also use Enter. The
-footer shows the current character count. Multiline pasted paths or code that
-start with `/` are sent as message text rather than interpreted as commands.
+`dots chat NAME` launches the actual Qwen Code Ink application in `qwen-code/`.
+Its layout, composer, text buffer, transcript, keyboard handling, and themes come
+from that checkout. The former Python terminal UI has been removed.
 
-Each visible Dot response has a session-local number. Click its `Copy #N` button
-under the response or in the prompt footer to copy the whole response to the
-system clipboard. Use
-`Older` and `Newer` to reach every response's button. `/copy N` works by keyboard;
-`/copy` copies the latest response. Copying preserves multiline text and never
-sends a message or changes the draft. Response text stays in memory only.
-`/quit` finishes any in-flight journal/network operation before releasing the
-conversation lock. Nothing is automatically resent or resumed. `--message` keeps
-its existing bounded reply wait and `--timeout` behavior.
+Install the pinned dependencies in `qwen-code/`, then run
+`npm run build -- --cli-only`. The Python CLI launches the built entry point
+with a Dots-specific backend mode. Authentication, saved Dot identities,
+message history, single-send delivery journals, and reply polling remain in
+Python. The interface does not run Qwen's local model or coding-agent loop.
+
+`/refresh` and `/wait` check messages; `/status` reads runtime and delivery state;
+`/abandon` stops tracking an uncertain delivery; `/quit` exits. Abandoning tracking
+does not cancel delivery or cloud work. Nothing is automatically resent or
+resumed. `--message` retains its bounded reply wait and `--timeout` behavior;
+`--status` remains available without the interactive interface.
