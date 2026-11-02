@@ -25,6 +25,14 @@ def working_status(status):
  kind=status.get('type');flags=status.get('activeFlags',[])
  return {'working':kind=='active' and not any(f in ('waitingOnApproval','waitingOnUserInput') for f in flags),'activityKnown':kind in ('active','idle','notLoaded','systemError'),'activityObservedAt':time.time()}
 
+def subscribe_loaded(call,entries):
+ # Missing/archived legacy sessions must not silence the rest of the crew.
+ # Only subscribe already-loaded sessions; never revive a missing conversation here.
+ loaded=set(call('thread/loaded/list',{})['data'])
+ threads={e['thread_id']:identity for identity,e in entries.items() if e['thread_id'] in loaded}
+ for thread in threads:call('thread/resume',{'threadId':thread,'excludeTurns':True})
+ return threads
+
 class Connector:
  def __init__(self,path):
   path=Path(path)
@@ -33,7 +41,7 @@ class Connector:
   if urlparse(self.spec['url']).scheme!='wss':raise ValueError('Use an authenticated WSS studio hub')
   self.entries={e['id']:e for e in self.spec['agents']}
   if not self.entries or len(self.entries)!=len(self.spec['agents']):raise ValueError('Unique agent identities required')
-  self.bridge=LocalCodexBridge([{'thread_id':e['thread_id'],'name':e['name']} for e in self.entries.values()],path.with_suffix('.sqlite'),DaemonRPC(Path(self.spec.get('codex_home',str(Path.home()/'.codex'))).expanduser()))
+  self.bridge=LocalCodexBridge([{'thread_id':e['thread_id'],'name':e['name'],'resume_on_send':e.get('resume_on_send') is True} for e in self.entries.values()],path.with_suffix('.sqlite'),DaemonRPC(Path(self.spec.get('codex_home',str(Path.home()/'.codex'))).expanduser()))
   self.socket=None;self.lock=threading.Lock();self.refresh=threading.Event()
  def send(self,value):
   with self.lock:
@@ -49,7 +57,7 @@ class Connector:
       activity=working_status(call('thread/read',{'threadId':entry['thread_id'],'includeTurns':False})['thread'].get('status'))
      history=self.bridge.request('GET','/messaging/rooms/'+PREFIX+entry['thread_id']+'/messages',{},None)
      report=read_report(Path(self.spec.get('work_reports','/workspace/FMVisual/telemetry')),identity)
-     self.send({'type':'publish','changes':{'agents':{identity:{'id':identity,'name':entry['name'],'nativeSessionId':entry['thread_id'],'server':self.spec['server'],'sessionLoaded':loaded,**activity,'capabilities':{'inspect':True},'workReport':report,'history':history}}}})
+     self.send({'type':'publish','changes':{'agents':{identity:{'id':identity,'name':entry['name'],'nativeSessionId':entry['thread_id'],'server':self.spec['server'],'sessionLoaded':loaded,**activity,'capabilities':{'inspect':True,'boundInput':True},'workReport':report,'history':history}}}})
     except Exception:pass # Last-good central history survives host outages.
  def observe(self):
   delay=1
@@ -69,9 +77,7 @@ class Connector:
        return row['result']
     call('initialize',{'clientInfo':{'name':'vmfactory-crew','version':'1.0.0'},'capabilities':{'experimentalApi':True}})
     ws.send(json.dumps({'method':'initialized','params':{}}))
-    loaded=call('thread/loaded/list',{})['data'];threads={e['thread_id']:i for i,e in self.entries.items()}
-    if not set(threads)<=set(loaded):raise RuntimeError('Open the shared sessions on this server first')
-    for thread in threads:call('thread/resume',{'threadId':thread,'excludeTurns':True})
+    threads=subscribe_loaded(call,self.entries)
     self.refresh.set();delay=1;ws.settimeout(None)
     while True:
      row=json.loads(ws.recv());params=row.get('params',{});identity=threads.get(params.get('threadId'))
@@ -101,6 +107,7 @@ class Connector:
  def request(self,row):
   try:
    entry=self.entries[row['agentId']];operation=row['operation']
+   if row.get('expectedNativeSessionId') is not None and row['expectedNativeSessionId'] != entry['thread_id']:raise ValueError('Native session binding changed; nothing sent')
    if operation not in ('send','stop','inspect'):raise ValueError('Unsupported operation')
    if operation=='inspect':
     with self.bridge.rpc.connection() as call:

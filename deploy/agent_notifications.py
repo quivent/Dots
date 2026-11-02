@@ -56,6 +56,9 @@ class AgentNotifications:
   self.jwt_time=int(time.time());unsigned=encode(json.dumps({'alg':'ES256','kid':config['key_id']},separators=(',',':')).encode())+'.'+encode(json.dumps({'iss':config['team_id'],'iat':self.jwt_time},separators=(',',':')).encode())
   key=serialization.load_pem_private_key(Path(config['key_path']).read_bytes(),None);r,s=utils.decode_dss_signature(key.sign(unsigned.encode(),ec.ECDSA(hashes.SHA256())))
   self.jwt=unsigned+'.'+encode(r.to_bytes(32,'big')+s.to_bytes(32,'big'));return self.jwt
+ def payload(self,event):
+  identity,agent,name,at=event
+  return {'aps':{'alert':{'title':name+' stopped working','body':'Open the conversation to see why.'},'sound':'default','thread-id':'crew-'+agent},'agentId':agent,'eventId':identity}
  def send(self,config,device,event):
   if not event[0].startswith("fb:") and (self.activity.get(event[1]) is not False or self.stop_events.get(event[1])!=event[0]):return "cancelled"
   id,owner,token,environment=device[:4];topic=device[4] if len(device)>4 else 'pictures.influx.vmfactory.mobile';identity,agent,name,at=event
@@ -63,7 +66,7 @@ class AgentNotifications:
   except (OSError,ValueError):return 'retry'
   if owner not in allowed:return 'revoked'
   host='api.sandbox.push.apple.com' if environment=='sandbox' else 'api.push.apple.com'
-  payload={'aps':{'alert':{'title':name+' stopped working','body':'Open the conversation to see why.'},'sound':'default','thread-id':'crew-'+agent},'agentId':agent,'eventId':identity}
+  payload=self.payload(event)
   lines={'url':'https://'+host+'/3/device/'+token,'request':'POST','header':['authorization: bearer '+self.token(config),'apns-topic: '+topic,'apns-push-type: alert','apns-priority: 10','apns-expiration: '+str(int(at)+3600),'apns-collapse-id: '+identity],'data':json.dumps(payload,separators=(',',':')),'write-out':'\n%{http_code}'}
   text='\n'.join(k+' = '+json.dumps(v) for k,value in lines.items() for v in (value if isinstance(value,list) else [value]))
   r=subprocess.run(['curl','--http2','--silent','--show-error','--max-time','10','--config','-'],input=text,capture_output=True,text=True,timeout=15)

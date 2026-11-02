@@ -17,7 +17,7 @@ from aiohttp import web, ClientSession, ClientTimeout, WSMsgType
 from task_store import TaskStore
 from work_replica import WorkReplica
 from asset_store import AssetStore,MAX_BLOB
-from agent_notifications import AgentNotifications
+from feedback_inbox import FeedbackNotifications, FeedbackConflict, native_id
 
 DATA = Path('/var/lib/dots-ops/chat-hub/vmfactory-sync.sqlite')
 PUBLISHER = Path('/etc/dots-hub/vmfactory-publisher.sha256')
@@ -39,7 +39,7 @@ class State:
         self.db.executescript('CREATE TABLE IF NOT EXISTS records(key TEXT PRIMARY KEY,payload TEXT); CREATE TABLE IF NOT EXISTS events(seq INTEGER PRIMARY KEY AUTOINCREMENT,revision TEXT,keys TEXT,received REAL);')
         for key, payload in self.db.execute('SELECT key,payload FROM records'):
             if key in KEYS: self.data[key] = json.loads(payload)
-        self.notifications = AgentNotifications(self.db)
+        self.notifications = FeedbackNotifications(self.db)
         self.tasks = TaskStore(self.db)
         with self.db:
             for key in ('tasks','worker'):
@@ -79,8 +79,15 @@ class State:
             if identity != 'maestro': value['history'] = self.history(identity)
         return agents
 
+    def viewer_revision(self):
+        revision=self.notifications.inbox.summary()['revision']
+        return self.revision if revision==0 else hashlib.sha256((self.revision+':'+str(revision)).encode()).hexdigest()
+
+    def feedback_changed(self):
+        self.broadcast({'type':'update','revision':self.viewer_revision(),'changes':{'feedbackInbox':self.notifications.inbox.summary()}})
+
     def snapshot(self):
-        return dict(self.data, revision=self.revision, sequence=self.sequence, source='central-hub', publisherOnline=self.publishers > 0, wireSequence=self.wire_sequence, epoch=self.epoch, maestroHistory=self.history(), agents=self.agents())
+        return dict(self.data, revision=self.viewer_revision(), feedbackInbox=self.notifications.inbox.summary(), sequence=self.sequence, source='central-hub', publisherOnline=self.publishers > 0, wireSequence=self.wire_sequence, epoch=self.epoch, maestroHistory=self.history(), agents=self.agents())
 
     def history(self, agent='maestro'):
         cached = self.data.get('maestroHistory', {'items': [], 'prev_cursor': None}) if agent == 'maestro' else self.data.get('agents', {}).get(agent, {}).get('history', {'items': [], 'prev_cursor': None})
@@ -190,6 +197,49 @@ async def viewer_authorized(request):
         return False
 
 
+async def feedback(request):
+    if request.headers.get('Origin'):raise web.HTTPUnauthorized()
+    state=request.app['state'];service=state.notifications
+    scope=publisher_scope(bearer(request));identity=request.match_info.get('identity')
+    try:
+        if request.method=='POST' and not identity:
+            if not scope:raise web.HTTPUnauthorized()
+            body=await request.json()
+            names={key:value.get('name',key) for key,value in state.agents().items()}
+            if request.path.endswith('/recover'):
+                if scope.get('metadata') is not True or not isinstance(body,dict) or body.get('source')!='recovered':raise web.HTTPForbidden()
+                rows=state.data.get('roster',{}).get('crew',[])
+                found=next((row for row in rows if row.get('id')==body.get('agentId') and native_id(row.get('sessionId'))==native_id(body.get('nativeSessionId'))),None)
+                if not found:raise web.HTTPForbidden()
+                scope=dict(scope,agents=[found['id']]);names[found['id']]=found.get('name',found['id'])
+            record,created=service.submit_feedback(body,scope,names)
+            if created:state.feedback_changed()
+            return web.json_response({'saved':True,'created':created,'record':record,'summary':service.inbox.summary(),'pushConfigured':service.config.is_file()},status=201 if created else 200,headers={'Cache-Control':'no-store'})
+        if request.method=='POST' and request.path.endswith('/source-resolved'):
+            if not scope:raise web.HTTPUnauthorized()
+            body=await request.json()
+            if not isinstance(body,dict) or set(body)!={'nativeSessionId'}:raise ValueError('Invalid source resolution')
+            record=service.inbox.source_resolved(identity,scope,body['nativeSessionId'])
+            service.changed_feedback(record);state.feedback_changed()
+            return web.json_response({'record':record,'summary':service.inbox.summary()},headers={'Cache-Control':'no-store'})
+        if request.method=='GET' and identity and scope:
+            record=service.inbox.get(identity)
+            if record['agentId'] not in scope['agents']:raise web.HTTPForbidden()
+            return web.json_response({'record':record},headers={'Cache-Control':'no-store'})
+        if not await viewer_authorized(request):raise web.HTTPUnauthorized()
+        if request.method=='GET':
+            value={'record':service.inbox.get(identity)} if identity else service.inbox.sync(after=int(request.query.get('after','0')),through=int(request.query['through']) if 'through' in request.query else None,limit=int(request.query.get('limit','20')))
+            return web.json_response(value,headers={'Cache-Control':'no-store'})
+        if request.method=='POST' and identity:
+            record=service.inbox.change(identity,await request.json());service.changed_feedback(record);state.feedback_changed()
+            return web.json_response({'record':record,'summary':service.inbox.summary()},headers={'Cache-Control':'no-store'})
+        raise web.HTTPMethodNotAllowed(request.method,['GET','POST'])
+    except FeedbackConflict as error:return web.json_response({'error':str(error)},status=409)
+    except PermissionError:raise web.HTTPForbidden()
+    except KeyError:raise web.HTTPNotFound()
+    except (ValueError,TypeError,AttributeError):return web.json_response({'error':'Invalid public feedback request'},status=400)
+
+
 async def register_notifications(request):
     if request.headers.get('Origin') or not await viewer_authorized(request):raise web.HTTPUnauthorized()
     try:
@@ -219,7 +269,7 @@ async def snapshot(request):
     if request.headers.get('Origin') or not await viewer_authorized(request):
         raise web.HTTPUnauthorized()
     state = request.app['state']
-    etag = '"' + state.revision + '"'
+    etag = '"' + state.viewer_revision() + '"'
     if request.headers.get('If-None-Match') == etag:
         return web.Response(status=304, headers={'ETag': etag, 'Cache-Control': 'no-cache'})
     response = web.json_response(state.snapshot(), headers={'ETag': etag, 'Cache-Control': 'no-cache'})
@@ -232,9 +282,13 @@ async def history(request):
         raise web.HTTPUnauthorized()
     agent=request.match_info.get('agent','maestro')
     if agent!='maestro' and agent not in request.app['state'].data.get('agents',{}):raise web.HTTPNotFound()
+    expected=request.query.get('nativeSessionId')
+    if expected is not None and request.app['state'].agents().get(agent,{}).get('nativeSessionId') != expected:
+        return web.json_response({'error':'The original native session is no longer bound to this conversation'},status=409)
     value = request.app['state'].history(agent)
     if value is None:
         return web.json_response({'error': 'Waiting for the Mac to publish Maestro history.'}, status=503)
+    if expected is not None:value=dict(value,boundNativeSessionId=expected)
     response = web.json_response(value, headers={'Cache-Control': 'no-store'})
     response.enable_compression()
     return response
@@ -296,6 +350,12 @@ async def connect(request):
                     if operation == 'inspect' and state.data.get('agents',{}).get(agent,{}).get('capabilities',{}).get('inspect') is not True:
                         queue.put_nowait(json.dumps({'type':'rpcResult','id':identity,'status':501,'body':{'error':'This publisher does not support read-only inspection.'}}))
                         continue
+                    expected=value.get('expectedNativeSessionId')
+                    if expected is not None:
+                        published=state.data.get('agents',{}).get(agent,{})
+                        if not isinstance(expected,str) or published.get('nativeSessionId') != expected or published.get('capabilities',{}).get('boundInput') is not True:
+                            queue.put_nowait(json.dumps({'type':'rpcResult','id':identity,'status':409,'body':{'error':'The original native session binding is unavailable. Nothing was sent.'}}))
+                            continue
                     if identity in state.requests:
                         queue.put_nowait(json.dumps({'type':'rpcResult','id':identity,'status':409,'body':{'error':'This request is already in progress.'}}))
                         continue
@@ -305,7 +365,7 @@ async def connect(request):
                         continue
                     publisher = publishers[-1]
                     state.requests[identity] = (queue, publisher)
-                    state.publisher_channels[publisher].put_nowait(json.dumps({'type':'request','id':identity,'operation':operation,'body':body,'agentId':agent}))
+                    state.publisher_channels[publisher].put_nowait(json.dumps({'type':'request','id':identity,'operation':operation,'body':body,'agentId':agent,**({'expectedNativeSessionId':expected} if expected is not None else {})}))
                     async def timeout(identity=identity, owner=queue):
                         await asyncio.sleep(30)
                         waiting = state.requests.get(identity)
@@ -387,6 +447,12 @@ def application(path=DATA):
     app['state'] = State(path)
     app['assets'] = AssetStore(Path(path).parent/'vmfactory-assets')
     app.cleanup_ctx.append(lifecycle)
+    app.router.add_post('/v1/vmfactory/feedback/recover',feedback)
+    app.router.add_get('/v1/vmfactory/feedback/requests',feedback)
+    app.router.add_post('/v1/vmfactory/feedback/requests',feedback)
+    app.router.add_get('/v1/vmfactory/feedback/requests/{identity}',feedback)
+    app.router.add_post('/v1/vmfactory/feedback/requests/{identity}/actions',feedback)
+    app.router.add_post('/v1/vmfactory/feedback/requests/{identity}/source-resolved',feedback)
     app.router.add_post('/v1/vmfactory/notifications/device',register_notifications)
     app.router.add_get('/v1/vmfactory/assets/{digest}',asset)
     app.router.add_put('/v1/vmfactory/assets/{digest}',asset)
