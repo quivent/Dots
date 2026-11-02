@@ -152,3 +152,13 @@ class ReaderStreamTests(unittest.IsolatedAsyncioTestCase):
         frame = await asyncio.wait_for(ws.receive(), 2)
         self.assertEqual(frame.type, WSMsgType.CLOSE)
         self.assertEqual(frame.data, 1008)
+
+    async def test_owner_wrong_original_session_is_rejected_before_dispatch(self):
+        ws = await self.client.ws_connect('/v1/vmfactory/connect', headers={'Authorization': 'Bearer owner'})
+        await ws.receive_json()
+        await ws.send_json({'type': 'request', 'id': str(uuid.uuid4()), 'operation': 'stop',
+                           'agentId': 'tamsin', 'expectedNativeSessionId': 'different-thread', 'body': {}})
+        result = await ws.receive_json()
+        self.assertEqual(result['status'], 409)
+        self.assertEqual(self.state.requests, {})
+        await ws.close()

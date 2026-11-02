@@ -383,6 +383,12 @@ async def connect(request):
                     if operation == 'inspect' and state.data.get('agents',{}).get(agent,{}).get('capabilities',{}).get('inspect') is not True:
                         queue.put_nowait(json.dumps({'type':'rpcResult','id':identity,'status':501,'body':{'error':'This publisher does not support read-only inspection.'}}))
                         continue
+                    expected=value.get('expectedNativeSessionId')
+                    if expected is not None:
+                        published=state.data.get('agents',{}).get(agent,{})
+                        if not isinstance(expected,str) or published.get('nativeSessionId') != expected or published.get('capabilities',{}).get('boundInput') is not True:
+                            queue.put_nowait(json.dumps({'type':'rpcResult','id':identity,'status':409,'body':{'error':'The original native session binding is unavailable. Nothing was sent.'}}))
+                            continue
                     if identity in state.requests:
                         queue.put_nowait(json.dumps({'type':'rpcResult','id':identity,'status':409,'body':{'error':'This request is already in progress.'}}))
                         continue
@@ -392,7 +398,7 @@ async def connect(request):
                         continue
                     publisher = publishers[-1]
                     state.requests[identity] = (queue, publisher)
-                    state.publisher_channels[publisher].put_nowait(json.dumps({'type':'request','id':identity,'operation':operation,'body':body,'agentId':agent}))
+                    state.publisher_channels[publisher].put_nowait(json.dumps({'type':'request','id':identity,'operation':operation,'body':body,'agentId':agent,**({'expectedNativeSessionId':expected} if expected is not None else {})}))
                     async def timeout(identity=identity, owner=queue):
                         await asyncio.sleep(30)
                         waiting = state.requests.get(identity)
