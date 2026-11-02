@@ -14,6 +14,39 @@ from chat_router import Hub, Handler
 
 
 class ChatRouterTests(unittest.TestCase):
+    def test_studio_grants_owner_only_and_pair_body_cannot_elevate(self):
+        grant = {'project': 'fmvisual', 'capabilities': ['crew.read', 'tasks.read']}
+        class LocalHandler(Handler):
+            def upstream(self, *args, **kwargs):
+                raise AssertionError('Studio invitation must not depend on Mac')
+        server = ThreadingHTTPServer(('127.0.0.1', 0), LocalHandler); server.hub = self.hub
+        worker = threading.Thread(target=server.serve_forever, daemon=True); worker.start()
+        def call(path, body=None, token='owner-fixture'):
+            request = Request('http://127.0.0.1:' + str(server.server_port) + '/v1' + path,
+                headers={'Authorization': 'Bearer ' + token},
+                data=json.dumps(body).encode() if body is not None else None)
+            try:
+                with urlopen(request, timeout=2) as response: return response.status, json.load(response)
+            except HTTPError as error: return error.code, json.load(error)
+        try:
+            with patch.object(self.hub, 'authorized', return_value=True):
+                status, invite = call('/hosted/invitations', {'studio_access': grant})
+                self.assertEqual(status, 200)
+                status, joined = call('/pair', {'code': invite['code'], 'name': 'Partner'})
+                self.assertEqual(status, 200)
+                token = joined['token']
+                self.assertEqual(call('/health', token=token)[1]['studio_access'], grant)
+                self.assertEqual(call('/hosted/invitations', {'studio_access': grant}, token)[0], 403)
+                path = '/hosted/devices/' + joined['device_id'] + '/studio-access'
+                self.assertEqual(call(path, {'studio_access': grant}, token)[0], 403)
+                self.assertEqual(call(path, {'studio_access': None})[0], 200)
+                self.assertIsNone(call('/health', token=token)[1]['studio_access'])
+                old = self.hub.invitation('owner-fixture')
+                status, attempted = call('/pair', {'code': old['code'], 'name': 'Old', 'studio_access': grant})
+                self.assertTrue(status != 200 or not attempted.get('studio_access'))
+        finally:
+            server.shutdown(); server.server_close(); worker.join()
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.hub = Hub(Path(self.temp.name), registry={n: {'name': n, 'profile': n.lower(), 'thread_id': str(uuid.uuid4()), 'workspace': self.temp.name} for n in ['Wavesmith', 'Belle']})
