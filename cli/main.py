@@ -321,6 +321,9 @@ class Launcher:
 
 
 def main(argv=None):
+    if (sys.argv[1:] if argv is None else argv) == ['--tui-bridge']:
+        from .tui_bridge import main as bridge_main
+        return bridge_main()
     if os.name == 'nt':
         for stream in (sys.stdout, sys.stderr):
             if hasattr(stream, 'reconfigure'):

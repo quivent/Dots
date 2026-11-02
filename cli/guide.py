@@ -58,11 +58,7 @@ Opening chat never resumes it automatically. `dots pause Pocket` requests a prov
 | A normal message | Send once and wait for a new Dot message |
 | `/refresh` | Read new messages without sending |
 | `/status` | Read runtime, delivery, last check-in, and reported tasks without sending |
-| `/copy [N]` | Copy response N to the system clipboard; omit N for the latest response |
-| Mouse wheel / Page Up / Page Down | Scroll the transcript while preserving your draft |
-| Ctrl-End | Return to the latest messages and follow new replies |
-| Ctrl-S / Send button | Send the whole draft or execute a typed slash command |
-| Enter / Alt-Enter | Insert a newline; pasting never sends automatically |
+| Composer and transcript | Qwen Code's input, history, scrolling, Markdown, and terminal handling |
 | `/wait` | Continue checking for a pending reply |
 | `/quit` or Ctrl-D | Exit chat |
 | Ctrl-C | Exit and preserve pending delivery state |

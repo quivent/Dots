@@ -260,16 +260,16 @@ class ChatTests(unittest.TestCase):
         self.assertEqual(output.call_args_list[0].args[0].plain, 'Pocket: [red]Hi there')
 
     @patch('cli.chat.console.print')
-    def test_copy_numbers_are_stable_for_updated_responses_and_exclude_own_messages(self, output):
+    def test_updated_responses_replace_cached_text(self, output):
         first = reply('first')
         self.chat.display([first, user('mine')])
         second = reply('second')
         self.chat.display([second, first])
         updated = dict(first, content={'text': 'Updated\n日本語 [literal]'})
         self.chat.display([updated])
-        self.assertEqual(self.chat.response_numbers, {'first': 1, 'second': 2})
-        self.assertEqual(self.chat.responses, {1: 'Updated\n日本語 [literal]', 2: '[red]Hi there'})
-        self.assertEqual(output.call_args_list[-1].args[0].plain, 'Response #1 · /copy 1')
+        self.assertEqual(self.chat.rendered['first'], 'Updated\n日本語 [literal]')
+        self.assertEqual(self.chat.rendered['second'], '[red]Hi\x1b there')
+        self.assertEqual(output.call_args_list[-2].args[0].plain, 'Pocket: Updated\n日本語 [literal]')
 
     @patch('cli.chat.DotClient')
     def test_invalid_timeout_does_not_authenticate(self, client):
@@ -281,6 +281,15 @@ class ChatTests(unittest.TestCase):
     def test_dispatch(self, run):
         self.assertEqual(main(['--source', 'chatgpt', 'chat', 'Pocket', '--message', 'Hi']), 0)
         self.assertEqual(run.call_args.args[0].dot, 'Pocket')
+
+    @patch('cli.tui.interactive', return_value=0)
+    @patch('cli.chat.sys.stdin')
+    @patch('cli.chat.DotClient')
+    def test_interactive_command_delegates_before_opening_backend(self, client, stdin, interactive):
+        stdin.isatty.return_value = True
+        self.assertEqual(main(['--source', 'chatgpt', 'chat', 'Pocket']), 0)
+        self.assertEqual(interactive.call_args.args[0].dot, 'Pocket')
+        client.assert_not_called()
 
     @patch('cli.chat.sys.stdin')
     @patch('cli.chat.DotClient')

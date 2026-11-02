@@ -96,6 +96,8 @@ def encode_id(identifier, label='Dot'):
 
 
 class DotClient:
+    base_url = BASE_URL
+
     def __init__(self, token=None, account_id=None, opener=None):
         if token is None:
             token, saved_account, _ = credentials()
@@ -108,7 +110,7 @@ class DotClient:
             raise ApiError('No usable ChatGPT sign-in found. Run dots auth to sign in, then dots preflight. Run dots auth --help for explicit credential alternatives. An OpenAI API key does not provide Dot account access.')
         if not valid_credential(self.token) or not valid_credential(self.account_id):
             raise ApiError('Invalid account credential.')
-        url = BASE_URL + path + ('?' + urlencode(query) if query else '')
+        url = self.base_url + path + ('?' + urlencode(query) if query else '')
         payload = json.dumps(body).encode('utf-8') if body is not None else None
         request = Request(url, data=payload, method=method, headers={
             'Authorization': 'Bearer ' + self.token,

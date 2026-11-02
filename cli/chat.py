@@ -24,24 +24,6 @@ def terminal_text(value):
     return ''.join(c for c in str(value) if c in '\n\t' or (c.isprintable() and c != '\x7f'))
 
 
-def chat_header(name, paused):
-    heading = Text('●  ', style='#a7f3d0')
-    heading.append(terminal_text(name), style='bold #a7f3d0')
-    heading.append('  ·  ' + ('paused' if paused else 'Dot conversation'), style='yellow' if paused else 'dim')
-    heading.append('\n\n')
-    for index, (command, description) in enumerate((('/refresh', 'history'), ('/wait', 'pending reply'),
-                                                    ('/status', 'runtime'), ('/abandon', 'stop tracking'),
-                                                    ('/copy [N]', 'copy response'), ('/quit', 'leave'))):
-        if index in (2, 4):
-            heading.append('\n')
-        heading.append(command, style='bold #67e8f9')
-        heading.append(' ' + description + '   ', style='dim')
-    heading.append('\n\nReplies arrive automatically; you can keep composing.', style='dim')
-    console.print(Panel(heading, title='dots', title_align='left', border_style='#475569', padding=(1, 2)))
-    console.print(Text('Tasks delegated to Work or Codex can use those products’ allowance.', style='dim'))
-    console.print()
-
-
 def message_text(item):
     if item.get('deleted_at'):
         return '', False
@@ -95,10 +77,6 @@ class Chat:
         self.pending = json.loads(self.state_path.read_text()) if self.state_path.exists() else None
         self.seen = set()
         self.rendered = {}
-        self.responses = {}
-        self.response_numbers = {}
-        self.transcript = []
-        self.output = None
 
     def paused_notice(self):
         command = 'dots resume ' + shlex.quote(terminal_text(self.name))
@@ -133,7 +111,7 @@ class Chat:
         except ApiError as error:
             body.append('\nTask activity unavailable: ' + terminal_text(str(error)) + '\n', style='yellow')
         body.append('\nLive tool steps, context usage, and credit balances are not exposed by this status view.', style='dim')
-        (self.output or console).print(Panel(body, title='Dot status', title_align='left', border_style='#475569'))
+        console.print(Panel(body, title='Dot status', title_align='left', border_style='#475569'))
 
     def save(self):
         if self.pending is None:
@@ -187,29 +165,12 @@ class Chat:
                 self.seen.add(item['id'])
                 continue
             if text and self.rendered.get(item['id']) != text:
-                number = None
-                if not mine:
-                    number = self.response_numbers.setdefault(item['id'], len(self.response_numbers) + 1)
-                    self.responses[number] = terminal_text(text)
-                from .chat_transcript import outgoing_block, response_block
-                block = (response_block(terminal_text(self.name), terminal_text(text), number)
-                         if number is not None else outgoing_block(terminal_text(text)))
-                self.transcript.append((block, number))
                 message = Text()
                 message.append(terminal_text('You' if mine else self.name) + ': ',
                                style='bold #67e8f9' if mine else 'bold #a7f3d0')
                 message.append(terminal_text(text))
-                if self.output:
-                    if number is None:
-                        self.output.print(block)
-                    else:
-                        self.output.response(block, number)
-                else:
-                    console.print(message)
-                    if number is None:
-                        console.print()
-                    else:
-                        console.print(Text(f'Response #{number} · /copy {number}', style='dim'))
+                console.print(message)
+                console.print()
                 self.rendered[item['id']] = text
             self.seen.add(item['id'])
 
@@ -305,6 +266,9 @@ def run(args, launcher):
         raise ApiError('Supply a Dot ID with --by-id.')
     if args.message is None and not getattr(args, 'status', False) and not sys.stdin.isatty():
         raise ApiError('Interactive chat needs a terminal. Use --message TEXT for a single message.')
+    if args.message is None and not getattr(args, 'status', False):
+        from .tui import interactive
+        return interactive(args, launcher)
     client = DotClient()
     dot_id = args.dot if args.by_id else client.resolve(args.dot)
     # Independent from launcher actions; serialize sessions sharing this runtime.
@@ -317,7 +281,6 @@ def run(args, launcher):
     try:
         with guard.locked():
             chat = Chat(client, dot_id, guard.runtime)
-            chat_header(chat.name, bool(chat.profile.get('is_paused')))
             chat.display(chat.history())
             if chat.pending:
                 console.print(Text('◌ Previous message pending · checking without resending…', style='yellow'))
@@ -327,8 +290,6 @@ def run(args, launcher):
             if args.message is not None:
                 chat.send(args.message)
                 return 0 if chat.wait(args.timeout, args.poll) else 2
-            from .chat_ui import interactive
-            return interactive(chat, args.poll)
     except KeyboardInterrupt:
         console.print(Text('\nChat closed. Any pending send is saved; it will not be resent automatically.', style='dim'))
         return 130
