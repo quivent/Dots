@@ -16,11 +16,13 @@ import uuid
 from aiohttp import web, ClientSession, ClientTimeout, WSMsgType
 from task_store import TaskStore
 from work_replica import WorkReplica
+from studio_access import StudioAccess, view_digest
 from asset_store import AssetStore,MAX_BLOB
 from agent_notifications import AgentNotifications
 
 DATA = Path('/var/lib/dots-ops/chat-hub/vmfactory-sync.sqlite')
 PUBLISHER = Path('/etc/dots-hub/vmfactory-publisher.sha256')
+AUTH_HEALTH = 'http://127.0.0.1:18770/v1/health'
 KEYS = {'discoveries', 'tasks', 'roster', 'inventory', 'crew', 'worker', 'maestroHistory', 'agents', 'work', 'worlds', 'reports', 'assets'}
 
 
@@ -29,6 +31,8 @@ class State:
         self.path = Path(path)
         self.data = {'schema': 'vmfactory.mobile-snapshot/1'}
         self.clients = set()
+        self.client_access = {}
+        self.read_views = {}
         self.path.parent.mkdir(parents=True, exist_ok=True)
         descriptor = os.open(self.path, os.O_RDWR | os.O_CREAT, 0o600)
         os.close(descriptor)
@@ -81,6 +85,24 @@ class State:
 
     def snapshot(self):
         return dict(self.data, revision=self.revision, sequence=self.sequence, source='central-hub', publisherOnline=self.publishers > 0, wireSequence=self.wire_sequence, epoch=self.epoch, maestroHistory=self.history(), agents=self.agents())
+
+
+    def reader_view(self, access):
+        source = dict(self.data)
+        source['agents'] = {identity: dict(value, relayOnline=any(identity in scope['agents'] for scope in self.publisher_scopes.values()))
+                            for identity, value in self.data.get('agents', {}).items()}
+        projected = access.snapshot(source)
+        if access.key not in self.read_views:
+            self.read_views[access.key] = {'sequence': 0, 'revision': view_digest(projected),
+                'epoch': hashlib.sha256((self.epoch + ':' + access.key).encode()).hexdigest()[:24]}
+        return self.read_views[access.key], projected
+
+    def snapshot_for(self, access):
+        if access.owner:
+            return access.snapshot(self.snapshot())
+        view, projected = self.reader_view(access)
+        return dict(projected, revision=view_digest(projected), epoch=view['epoch'],
+                    wireSequence=view['sequence'], sequence=view['sequence'])
 
     def history(self, agent='maestro'):
         cached = self.data.get('maestroHistory', {'items': [], 'prev_cursor': None}) if agent == 'maestro' else self.data.get('agents', {}).get(agent, {}).get('history', {'items': [], 'prev_cursor': None})
@@ -142,13 +164,29 @@ class State:
     def broadcast(self, value):
         self.wire_sequence += 1
         value = dict(value, eventSequence=self.wire_sequence, epoch=self.epoch)
-        text = json.dumps(value, separators=(',', ':'))
+        owner_text = json.dumps(value, separators=(',', ':'))
+        read_messages = {}
         for queue in tuple(self.clients):
+            access = self.client_access.get(queue)
+            text = owner_text
+            if access is not None and not access.owner:
+                if access.key not in read_messages:
+                    view, projected = self.reader_view(access)
+                    revision = view_digest(projected)
+                    text = None
+                    if revision != view['revision']:
+                        view['sequence'] += 1
+                        view['revision'] = revision
+                        changes = {key: item for key, item in projected.items() if key not in ('schema', 'source')}
+                        text = json.dumps({'type': 'update', 'revision': revision, 'changes': changes,
+                                           'eventSequence': view['sequence'], 'epoch': view['epoch']}, separators=(',', ':'))
+                    read_messages[access.key] = text
+                text = read_messages[access.key]
+            if text is None:
+                continue
             try:
                 queue.put_nowait(text)
             except asyncio.QueueFull:
-                # A slow client reconnects and gets authoritative state; it
-                # must never accumulate an unbounded backlog of token events.
                 self.clients.discard(queue)
                 while not queue.empty(): queue.get_nowait()
                 queue.put_nowait(None)
@@ -177,17 +215,42 @@ def publisher_scope(token):
     return None
 
 
-async def viewer_authorized(request):
+async def identity_health(request):
     token = bearer(request)
-    if not token: return False
-    # Reuse the existing revocable device registry, including freshly paired
-    # tokens and hosted-only scope, without duplicating an authorization list.
+    if not token:
+        return None
     try:
-        async with request.app['http'].get('http://127.0.0.1:18770/v1/health', headers={'Authorization': 'Bearer ' + token}) as response:
-            if response.status != 200: return False
-            return (await response.json()).get('scope') == 'owner'
+        async with request.app['http'].get(AUTH_HEALTH, headers={'Authorization': 'Bearer ' + token}) as response:
+            if response.status != 200:
+                return None
+            value = await response.json()
+            return value if isinstance(value, dict) else None
     except Exception:
-        return False
+        return None
+
+
+async def viewer_authorized(request):
+    # Existing private routes remain owner-only. The request value is refreshed
+    # on every call, including WebSocket revocation checks; never a token cache.
+    health = await identity_health(request)
+    request['studio_identity_health'] = health
+    return isinstance(health, dict) and health.get('scope') == 'owner'
+
+
+async def viewer_access(request):
+    request['studio_identity_health'] = None
+    if await viewer_authorized(request):
+        return StudioAccess.owner_access()
+    return StudioAccess.from_health(request.get('studio_identity_health'))
+
+
+def denied_studio_view(request):
+    health = request.get('studio_identity_health')
+    if isinstance(health, dict) and health.get('scope') == 'hosted':
+        return web.json_response({'error': 'studio_access_required',
+            'message': 'This invitation does not include Studio tasks or crew. Request a Studio invitation from its owner.'}, status=403)
+    return web.json_response({'error': 'studio_authentication_required',
+        'message': 'Join your Studio or reconnect this device.'}, status=401)
 
 
 async def register_notifications(request):
@@ -216,19 +279,27 @@ async def asset(request):
 
 
 async def snapshot(request):
-    if request.headers.get('Origin') or not await viewer_authorized(request):
+    if request.headers.get('Origin'):
         raise web.HTTPUnauthorized()
-    state = request.app['state']
-    etag = '"' + state.revision + '"'
+    access = await viewer_access(request)
+    if access is None:
+        return denied_studio_view(request)
+    value = request.app['state'].snapshot_for(access)
+    etag = '"' + value['revision'] + '"'
     if request.headers.get('If-None-Match') == etag:
         return web.Response(status=304, headers={'ETag': etag, 'Cache-Control': 'no-cache'})
-    response = web.json_response(state.snapshot(), headers={'ETag': etag, 'Cache-Control': 'no-cache'})
+    response = web.json_response(value, headers={'ETag': etag, 'Cache-Control': 'no-cache'})
     response.enable_compression()
     return response
 
 
 async def history(request):
-    if request.headers.get('Origin') or not await viewer_authorized(request):
+    if request.headers.get('Origin'):
+        raise web.HTTPUnauthorized()
+    if not await viewer_authorized(request):
+        health = request.get('studio_identity_health')
+        if isinstance(health,dict) and health.get('scope')=='hosted':
+            return web.json_response({'error':'studio_read_only','message':'Private agent history requires an owner connection.'},status=403)
         raise web.HTTPUnauthorized()
     agent=request.match_info.get('agent','maestro')
     if agent!='maestro' and agent not in request.app['state'].data.get('agents',{}):raise web.HTTPNotFound()
@@ -245,32 +316,44 @@ async def connect(request):
         raise web.HTTPForbidden()
     publishing = request.query.get('role') == 'publisher'
     scope=publisher_scope(bearer(request)) if publishing else None
+    access = None
     if publishing:
         if scope is None:raise web.HTTPUnauthorized()
-    elif not await viewer_authorized(request):
-        raise web.HTTPUnauthorized()
+    else:
+        access = await viewer_access(request)
+        if access is None:
+            return denied_studio_view(request)
     ws = web.WebSocketResponse(heartbeat=15, max_msg_size=2 * 1024 * 1024, compress=False)
     await ws.prepare(request)
     state = request.app['state']
     if publishing:
         state.publishers += 1
         state.notifications.reset(scope["agents"])
-    await ws.send_json({'type': 'ready', 'revision': state.revision, 'sequence': state.sequence, 'epoch': state.epoch, 'eventSequence': state.wire_sequence})
+    ready = {'type': 'ready', 'revision': state.revision, 'sequence': state.sequence, 'epoch': state.epoch, 'eventSequence': state.wire_sequence}
+    if access is not None and not access.owner:
+        initial = state.snapshot_for(access)
+        ready.update(revision=initial['revision'], sequence=initial['sequence'], epoch=initial['epoch'], eventSequence=initial['wireSequence'])
+    await ws.send_json(ready)
     queue = asyncio.Queue(maxsize=64)
     if publishing: state.publisher_channels[ws] = queue;state.publisher_scopes[ws]=scope
-    else: state.clients.add(queue)
+    else:
+        state.clients.add(queue)
+        state.client_access[queue] = access
     async def write():
         while True:
             text = await queue.get()
             if text is None:
                 await ws.close(code=1013, message=b'Reconnect to recover current state')
                 return
+            if access is not None and not access.owner and await viewer_access(request) != access:
+                await ws.close(code=1008, message=b'Studio access changed or was revoked')
+                return
             await ws.send_str(text)
     writer = asyncio.create_task(write())
     async def authorize_again():
         while not ws.closed:
             await asyncio.sleep(30)
-            valid = publisher_scope(bearer(request)) == scope if publishing else await viewer_authorized(request)
+            valid = publisher_scope(bearer(request)) == scope if publishing else await viewer_access(request) == access
             if not valid:
                 await ws.close(code=1008, message=b'Connection authorization revoked')
                 return
@@ -282,11 +365,15 @@ async def connect(request):
             if not publishing:
                 try:
                     value = json.loads(message.data)
+                    if not isinstance(value, dict):raise ValueError('Invalid request')
                     identity, operation, body = value.get('id'), value.get('operation'), value.get('body', {})
                     agent=value.get('agentId','maestro')
                     if not isinstance(agent,str) or not 0<len(agent)<=64:raise ValueError('Invalid agent')
                     if value.get('type') != 'request' or not isinstance(identity, str) or str(uuid.UUID(identity)) != identity.lower() or operation not in ('send', 'stop', 'inspect') or not isinstance(body, dict):
                         raise ValueError('Unsupported request')
+                    if not access.owner:
+                        queue.put_nowait(json.dumps({'type':'rpcResult','id':identity,'status':403,'body':{'error':'studio_read_only','message':'This Studio invitation allows reading tasks and crew, not private history or agent controls.'}}))
+                        continue
                     if operation == 'send':
                         content = body.get('content', {})
                         if (body.get('request_id') != identity or body.get('idempotency_token') != identity or body.get('work_approved') is not True or not isinstance(content, dict) or content.get('attachments') != [] or not isinstance(content.get('text'), str) or not content['text'].strip() or len(content['text']) > 12000):
@@ -366,6 +453,7 @@ async def connect(request):
                     try: owner.put_nowait(json.dumps({'type':'rpcResult','id':identity,'status':502,'body':{'error':'The Mac connection ended. Delivery is unconfirmed; no automatic retry was made.'}}))
                     except asyncio.QueueFull: pass
         state.clients.discard(queue)
+        state.client_access.pop(queue, None)
         if writer:
             writer.cancel()
             await asyncio.gather(writer, return_exceptions=True)

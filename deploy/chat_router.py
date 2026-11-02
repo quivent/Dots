@@ -13,6 +13,7 @@ from urllib.error import HTTPError
 from urllib.parse import parse_qs, urlsplit
 from urllib.request import Request, build_opener, HTTPRedirectHandler
 import uuid
+from studio_access import normalize_grant, stored_grant, migrate_grants
 import websocket
 import bank_client
 
@@ -175,6 +176,7 @@ class Hub:
         for table in ('messages', 'requests'):
             if 'author_id' not in [r[1] for r in self.conn.execute('PRAGMA table_info(' + table + ')')]:
                 self.conn.execute('ALTER TABLE ' + table + ' ADD COLUMN author_id TEXT')
+        migrate_grants(self.conn)
         self.conn.execute("UPDATE jobs SET status='unknown' WHERE status IN ('running','queued','approval_needed')")
         self.conn.execute("UPDATE approvals SET status='stale' WHERE status='pending'")
         self.conn.commit()
@@ -257,14 +259,31 @@ class Hub:
                     self.conn.executemany('INSERT INTO room_people VALUES(?,?)', [(identity, p) for p in people])
         return self.profile(self.db('SELECT * FROM rooms WHERE id=?', (identity,), one=True))
 
-    def invitation(self, token):
+    def studio_access(self, token):
+        device = self.db('SELECT studio_access FROM devices WHERE token_hash=? AND revoked=0',
+                         (hashlib.sha256(token.encode()).hexdigest(),), one=True)
+        return stored_grant(device['studio_access']) if device else None
+
+    def set_studio_access(self, identity, value):
+        grant = normalize_grant(value)
+        with self.lock, self.conn:
+            if not self.conn.execute('SELECT 1 FROM devices WHERE id=? AND revoked=0', (identity,)).fetchone():
+                return None
+            self.conn.execute('UPDATE devices SET studio_access=? WHERE id=?',
+                              (json.dumps(grant) if grant is not None else None, identity))
+        return {'id': identity, 'studio_access': grant}
+
+    def invitation(self, token, studio_access=None):
+        grant = normalize_grant(studio_access)
         owner = hashlib.sha256(token.encode()).hexdigest()
         identity, code = str(uuid.uuid4()), f'{secrets.randbelow(100_000_000):08d}'
         expires = time.time() + 600
         with self.lock, self.conn:
             self.conn.execute('UPDATE invitations SET expires=? WHERE owner=? AND used=0', (time.time(), owner))
-            self.conn.execute('INSERT INTO invitations VALUES(?,?,?,?,0)', (identity, hashlib.sha256(code.encode()).hexdigest(), owner, expires))
-        return {'id': identity, 'code': code, 'expires_in': 600, 'scope': 'hosted'}
+            self.conn.execute('INSERT INTO invitations(id,code_hash,owner,expires,used,studio_access) VALUES(?,?,?,?,0,?)',
+                              (identity, hashlib.sha256(code.encode()).hexdigest(), owner, expires,
+                               json.dumps(grant) if grant is not None else None))
+        return {'id': identity, 'code': code, 'expires_in': 600, 'scope': 'hosted', 'studio_access': grant}
 
     def redeem_invitation(self, code, name):
         with self.lock:
@@ -274,8 +293,10 @@ class Hub:
             identity, token = str(uuid.uuid4()), secrets.token_urlsafe(32)
             with self.conn:
                 self.conn.execute('UPDATE invitations SET used=1 WHERE id=?', (row['id'],))
-                self.conn.execute('INSERT INTO devices VALUES(?,?,?,?,0)', (identity, hashlib.sha256(token.encode()).hexdigest(), name, time.time()))
-            return {'token': token, 'name': 'Dots server', 'scope': 'hosted', 'device_id': identity}
+                self.conn.execute('INSERT INTO devices(id,token_hash,name,created,revoked,studio_access) VALUES(?,?,?,?,0,?)',
+                                  (identity, hashlib.sha256(token.encode()).hexdigest(), name, time.time(), row['studio_access']))
+            return {'token': token, 'name': 'Dots server', 'scope': 'hosted', 'device_id': identity,
+                    'studio_access': stored_grant(row['studio_access'])}
 
     def profile(self, room):
         members = json.loads(room['members'])
@@ -512,12 +533,19 @@ class Handler(BaseHTTPRequestHandler):
             if path.startswith('/hosted/invitations') or path.startswith('/hosted/devices'):
                 if member: return self.reply(403, {'error': 'Only an owner connection can invite or revoke phones.'})
                 if path == '/hosted/invitations' and method == 'POST':
-                    return self.reply(200, hub.invitation(token))
+                    if set(body) - {'studio_access'}: raise ValueError('Unknown invitation field')
+                    return self.reply(200, hub.invitation(token, body.get('studio_access')))
                 if path == '/hosted/devices' and method == 'GET':
-                    return self.reply(200, {'items': hub.db('SELECT id,name,created,revoked FROM devices ORDER BY created DESC')})
+                    devices = hub.db('SELECT id,name,created,revoked,studio_access FROM devices ORDER BY created DESC')
+                    for device in devices: device['studio_access'] = stored_grant(device['studio_access'])
+                    return self.reply(200, {'items': devices})
                 if path.startswith('/hosted/devices/') and path.endswith('/revoke') and method == 'POST':
                     hub.db('UPDATE devices SET revoked=1 WHERE id=?', (path.split('/')[3],))
                     return self.reply(200, {'ok': True})
+                if path.startswith('/hosted/devices/') and path.endswith('/studio-access') and method == 'POST':
+                    if set(body) != {'studio_access'}: raise ValueError('Studio access is required')
+                    result = hub.set_studio_access(path.split('/')[3], body['studio_access'])
+                    return self.reply(200 if result else 404, result or {'error': 'Device not found'})
                 raise ValueError('Invalid device action')
             if method == 'GET' and (path == '/bank/entries' or path.startswith('/bank/entries/')):
                 try:
@@ -526,7 +554,9 @@ class Handler(BaseHTTPRequestHandler):
                     return self.reply(404, {'error': 'Bank entry unavailable'})
                 return self.reply(200, result)
             if method == 'GET' and path == '/health':
-                return self.reply(200, {'name': 'Dots server', 'protocol_version': 1, 'hosted_agents': len(hub.agents), 'scope': 'hosted' if member else 'owner'})
+                return self.reply(200, {'name': 'Dots server', 'protocol_version': 1, 'hosted_agents': len(hub.agents),
+                                       'scope': 'hosted' if member else 'owner',
+                                       'studio_access': hub.studio_access(token) if member else None})
             if path == '/hosted/agents' and method == 'GET':
                 rooms = [hub.db('SELECT * FROM rooms WHERE id=?', ('hub-' + s,), one=True) for s in hub.agents]
                 return self.reply(200, {'items': [hub.profile(r) for r in rooms]})

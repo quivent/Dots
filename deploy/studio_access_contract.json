@@ -1,0 +1,66 @@
+{
+  "schema": "fmvision.partner-studio-integration/1",
+  "task_id": "FMV-748",
+  "backend": "candidate-tested-not-deployed",
+  "member_scope": "hosted",
+  "grant": {
+    "project": "fmvisual",
+    "capabilities": [
+      "crew.read",
+      "tasks.read"
+    ]
+  },
+  "owner_endpoints": {
+    "POST /v1/hosted/invitations": {
+      "studio_access": {
+        "project": "fmvisual",
+        "capabilities": [
+          "crew.read",
+          "tasks.read"
+        ]
+      }
+    },
+    "POST /v1/hosted/devices/{device_id}/studio-access": {
+      "studio_access": "same grant or null to remove"
+    },
+    "POST /v1/hosted/devices/{device_id}/revoke": {}
+  },
+  "reader_endpoints": [
+    "GET /v1/vmfactory/snapshot",
+    "WS /v1/vmfactory/connect"
+  ],
+  "denied": [
+    "private agent histories",
+    "agent send/stop/inspect",
+    "owner notifications/control",
+    "owner scene assets"
+  ],
+  "app_integration_remaining": [
+    "Accept ASCII six-digit Mac or eight-digit invited-device pairing codes in existing pair flow.",
+    "Use invited device credential for the existing FactoryHost single socket; verify health/project/capabilities and snapshot BEFORE replacing any saved credential. Preserve existing owner pairing.",
+    "Adopt an already saved Dots invited account credential only if FactoryHost is unpaired; never overwrite owner keychain/account implicitly.",
+    "Render explicit no-Studio-grant, expired/revoked invitation and server-unreachable states separately.",
+    "Treat studioAccess.role reader as read-only: show permitted task/crew views; do not request private history or enable agent controls.",
+    "Owner invitation screen must request explicit Studio read grant; existing hosted-only invitations remain unchanged."
+  ],
+  "release_order": [
+    "Restore verified pinned Mac control.",
+    "Review/preserve/commit all existing dirty repository work to clean source before next partner build.",
+    "Aven integrates shared app files and owns signing/install.",
+    "Verify normal new-partner onboarding and scoped live updates on actual receiving device."
+  ],
+  "blocker": "Mac22022 no listener; reverse HTTP18769/18791 upstream000; no verified control path; Ash unloaded/send409 not accepted.",
+  "baseline": {
+    "installed": "2026110133.5",
+    "bytes": 17845393,
+    "source_manifest": "609177d80aef25b6f0b9059541c6341b4e56a4d4192dc699952818d6f41d117e"
+  },
+  "tests": {
+    "canonical_router": 18,
+    "new_access": 8,
+    "existing_hub": 8,
+    "deployed_hub_candidate_reader": 4,
+    "broad_suite": "59 run;7 errors in existing agent notification tests accessing protected APNs config; not a full green suite"
+  },
+  "production_preservation": "Canonical hub is older than deployed hub. Apply deployed-hub.patch only against exact deployed before hash after rechecking live files; never replace live hub with canonical older file. No production deployment or grant issued."
+}
