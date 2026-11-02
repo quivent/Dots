@@ -1,6 +1,7 @@
 """Phone access to explicitly shared threads in an already-running local daemon.
 
-Never launches/resumes a second harness or changes a thread's configuration.
+Never launches a second harness or changes a thread's configuration. An
+explicitly approved send may resume an opted-in shared thread in this daemon.
 The existing Codex client continues to handle native tool/permission requests.
 """
 from contextlib import contextmanager
@@ -43,7 +44,7 @@ class DaemonRPC:
                 while True:
                     result = json.loads(ws.recv())
                     # Notifications and requests owned by the desktop are not
-                    # answered here. This connection never subscribes/resumes.
+                    # answered here. Observation alone never resumes a thread.
                     if 'method' in result or result.get('id') != identity:
                         continue
                     if 'error' in result:
@@ -172,7 +173,15 @@ class LocalCodexBridge:
                 raise ApiError('Delivery is uncertain. Check the session; this message will not be sent twice.', 409)
             loaded = call('thread/loaded/list', {})['data']
             if identity not in loaded:
-                raise ApiError('Open this session in Codex on the Mac first.', 409)
+                if self.sessions[identity].get('resume_on_send') is not True:
+                    raise ApiError('Open this session in Codex on its server first.', 409)
+                # Opt-in is operator configuration, never a field accepted from
+                # the phone. Resume exactly the retained shared identity with no
+                # source/configuration override, new thread, or input replay.
+                resumed = call('thread/resume', {'threadId': identity, 'excludeTurns': True})
+                if (resumed.get('thread', {}).get('id') != identity
+                        or identity not in call('thread/loaded/list', {})['data']):
+                    raise ApiError('The original session could not be restored. Nothing was sent.', 409)
             turns = self.turns(identity, call, 1)
             active = next((t for t in turns if t['status'] == 'inProgress'), None)
             # Persist before writing to the daemon. A crash/timeout must never
