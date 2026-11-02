@@ -1,0 +1,128 @@
+{
+  "inspected_at": "2026-10-20",
+  "artifact": "Installed ChatGPT.app/Contents/Resources/app.asar, bundled source only",
+  "source": "app-initial-90eb42395b7d.js",
+  "observed_routes": {
+    "room_history": "GET /messaging/rooms/{room_id}/messages",
+    "history_query": [
+      "limit",
+      "before",
+      "after"
+    ],
+    "history_response": [
+      "items",
+      "prev_cursor",
+      "next_cursor"
+    ],
+    "send": "POST /messaging/rooms/{room_id}/messages",
+    "send_fields": [
+      "content.text",
+      "content.attachments",
+      "request_id",
+      "idempotency_token",
+      "timezone_offset_min"
+    ],
+    "room_creation": "POST /tbo/{tbo_id}/messaging-room",
+    "root_thread_lookup": "GET /tbo/{tbo_id}/root-thread",
+    "history_page_size": 25,
+    "dot_sender_actor_namespace": "calpico-member; these messages may still have role=user"
+  },
+  "limits": [
+    "First-party sending also prepares app attestation or sentinel integrity headers; this app does not bypass or implement those checks.",
+    "Direct iOS account sign-in and message sending still need live verification. Bluetooth Mac pairing, reconnect, live Dot creation, and history reading have been verified on Joshy."
+  ],
+  "creation_request": {
+    "create_thread": true,
+    "should_initialize": true,
+    "confirmation": "Creation must return a root thread ID. Missing room setup is a separate explicit action after re-reading the profile."
+  },
+  "live_validation": {
+    "date": "2026-10-20",
+    "device": "Joshy",
+    "transport": "Bluetooth to Mac daemon",
+    "authorized_creation": "Pocket",
+    "root_thread_confirmed": true,
+    "messaging_room_confirmed": true,
+    "history_reads": {
+      "default": "HTTP 200",
+      "limit_25": "HTTP 200",
+      "limit_50": "HTTP 422"
+    },
+    "read_latency_seconds": {
+      "catalog": 0.52,
+      "history": 0.36
+    },
+    "observed_reply_delays_seconds": [
+      20.0,
+      18.6
+    ]
+  },
+  "custom_rules": {
+    "read": "GET /wham/user-rules",
+    "observed_header": "x-openai-use-sheep: 1",
+    "response_fields": [
+      "rules",
+      "revision",
+      "validActions",
+      "canEdit"
+    ],
+    "live_connection_can_edit": false,
+    "writes_performed": false,
+    "checked_at": "2026-10-20",
+    "scope": "account-wide provider custom action rules; not a guaranteed execution gate"
+  },
+  "creation_investigation": {
+    "checked_at": "2026-10-25",
+    "known_success": {
+      "name": "Pocket",
+      "created_at": "2026-10-20T14:22:10.494295Z",
+      "evidence": "Existing live account profile and the October 20 iOS validation record"
+    },
+    "current_account": {
+      "plan": "pro",
+      "structure": "personal",
+      "plan_eligible": true,
+      "tbo_available": true,
+      "waitlist_info": "NO_WAITLIST",
+      "identity_check": "Selected account and the default alias refer to the same account"
+    },
+    "additional_creation": {
+      "name": "Polly",
+      "method": "POST",
+      "path": "/tbo",
+      "create_additional": true,
+      "status": 403,
+      "provider_detail": "Additional dots are not enabled",
+      "outcome": "No additional Dot created"
+    },
+    "first_party_source": {
+      "artifact": "Installed ChatGPT.app bundled app.asar; source only",
+      "module": "cloud-aeon-onboarding-2e6570831113.js",
+      "flag_expression": "create_additional: draft.isFirstAeon !== true",
+      "same_fields": [
+        "display_name",
+        "create_thread",
+        "create_additional",
+        "should_initialize"
+      ]
+    },
+    "catalog_boundary": {
+      "chatgpt_account": [
+        "Pocket"
+      ],
+      "hosted_agents": [
+        "Wavesmith",
+        "Oscillator",
+        "Belle"
+      ],
+      "hosted_shared_chats_are_account_dots": false
+    },
+    "ios_fix": "Determine first/additional from a fresh provider catalog, excluding hosted entries. Provider-unavailable or hosted-only catalog responses stop before the creation write and before saving an uncertain creation marker.",
+    "remaining_unknown": "The account capability response does not expose why additional creation is disabled. Current official setup/access pages do not establish a multiple-Dot allowance. The existing successful creation does not establish that additional creation was ever enabled.",
+    "official_sources": [
+      "https://learn.chatgpt.com/docs/dots/getting-started",
+      "https://learn.chatgpt.com/docs/dots"
+    ],
+    "deployment": "iOS source and simulator validation only; the installed phone app was not replaced."
+  }
+}
