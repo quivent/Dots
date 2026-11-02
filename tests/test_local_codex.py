@@ -21,6 +21,7 @@ class FakeRPC:
         self.loaded = True
         self.fail_write = False
         self.items = []
+        self.resume_identity = THREAD
 
     @contextmanager
     def connection(self):
@@ -32,6 +33,9 @@ class FakeRPC:
             return {'thread': {'cwd': '/workspace', 'status': {'type': 'active'}}}
         if method == 'thread/loaded/list':
             return {'data': [THREAD] if self.loaded else []}
+        if method == 'thread/resume':
+            self.loaded = self.resume_identity == THREAD
+            return {'thread': {'id': self.resume_identity}}
         if method == 'thread/turns/list':
             return {'data': [{'id': 'turn', 'status': 'inProgress' if self.active else 'completed'}]}
         if method == 'thread/items/list':
@@ -112,6 +116,37 @@ class LocalCodexTests(unittest.TestCase):
         with self.assertRaises(ApiError):
             self.bridge.request('GET', '/tbo/' + PREFIX + str(uuid.uuid4()), {}, {})
         self.assertEqual(self.rpc.calls, [])
+
+    def test_opted_in_approved_send_restores_exact_identity_and_deduplicates(self):
+        self.bridge.sessions[THREAD]['resume_on_send'] = True
+        self.rpc.loaded = False; self.rpc.active = False
+        first = self.send(); self.assertEqual(first, self.send())
+        resumes = [p for m, p in self.rpc.calls if m == 'thread/resume']
+        self.assertEqual(resumes, [{'threadId': THREAD, 'excludeTurns': True}])
+        self.assertEqual(len(self.writes()), 1)
+        self.assertEqual(self.writes()[0][0], 'turn/start')
+
+    def test_phone_cannot_enable_resume_and_unapproved_send_never_resumes(self):
+        self.rpc.loaded = False
+        self.body['resume_on_send'] = True
+        with self.assertRaises(ApiError): self.send()
+        self.bridge.sessions[THREAD]['resume_on_send'] = True
+        self.body['work_approved'] = False
+        with self.assertRaises(ApiError): self.send()
+        self.assertFalse(any(m == 'thread/resume' for m, _ in self.rpc.calls))
+
+    def test_mismatched_resume_cannot_send_or_create_uncertain_receipt(self):
+        self.bridge.sessions[THREAD]['resume_on_send'] = True
+        self.rpc.loaded = False; self.rpc.resume_identity = str(uuid.uuid4())
+        with self.assertRaises(ApiError): self.send()
+        self.assertEqual(self.writes(), [])
+        self.assertEqual(self.bridge.conn.execute('SELECT count(*) FROM sends').fetchone()[0], 0)
+
+    def test_observation_of_opted_in_session_does_not_resume(self):
+        self.bridge.sessions[THREAD]['resume_on_send'] = True
+        self.rpc.loaded = False
+        self.bridge.request('GET', '/messaging/rooms/' + PREFIX + THREAD + '/messages', {}, {})
+        self.assertFalse(any(m == 'thread/resume' for m, _ in self.rpc.calls))
 
     def test_history_filters_internal_data_and_reconciles_unknown_send(self):
         self.rpc.fail_write = True

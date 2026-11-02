@@ -33,7 +33,7 @@ class Connector:
   if urlparse(self.spec['url']).scheme!='wss':raise ValueError('Use an authenticated WSS studio hub')
   self.entries={e['id']:e for e in self.spec['agents']}
   if not self.entries or len(self.entries)!=len(self.spec['agents']):raise ValueError('Unique agent identities required')
-  self.bridge=LocalCodexBridge([{'thread_id':e['thread_id'],'name':e['name']} for e in self.entries.values()],path.with_suffix('.sqlite'),DaemonRPC(Path(self.spec.get('codex_home',str(Path.home()/'.codex'))).expanduser()))
+  self.bridge=LocalCodexBridge([{'thread_id':e['thread_id'],'name':e['name'],'resume_on_send':e.get('resume_on_send') is True} for e in self.entries.values()],path.with_suffix('.sqlite'),DaemonRPC(Path(self.spec.get('codex_home',str(Path.home()/'.codex'))).expanduser()))
   self.socket=None;self.lock=threading.Lock();self.refresh=threading.Event()
  def send(self,value):
   with self.lock:
