@@ -25,7 +25,7 @@ Two scoped launch agents hold the authenticated, loopback-only bridge:
 `org.fmvision.garden-voice-tunnel` forwards Mac 28740 to Garden 18740;
 `org.fmvision.garden-voice-backend` forwards backend 18740 back to Mac 28740.
 No GPU IP is compiled into iOS. A failed experiment using direct backend SSH
-was stopped; its user service is disabled. No existing key was changed.
+was stopped and its experimental user service removed. No existing key was changed.
 
 The gateway returns only bounded job state and, after complete identity checks,
 a 120-second signed URL for the exact private MP3. Server-only R2 configuration
