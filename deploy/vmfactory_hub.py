@@ -15,6 +15,8 @@ import time
 import uuid
 from aiohttp import web, ClientSession, ClientTimeout, WSMsgType
 from task_store import TaskStore
+from quick_tasks import install as install_quick_tasks
+from crew_voice import install as install_crew_voice
 from work_replica import WorkReplica
 from studio_access import StudioAccess, view_digest
 from asset_store import AssetStore,MAX_BLOB
@@ -533,6 +535,8 @@ async def lifecycle(app):
 def application(path=DATA):
     app = web.Application(client_max_size=2 * 1024 * 1024)
     app['state'] = State(path)
+    install_quick_tasks(app, viewer_authorized)
+    install_crew_voice(app, viewer_authorized)
     app['assets'] = AssetStore(Path(path).parent/'vmfactory-assets')
     app.cleanup_ctx.append(lifecycle)
     app.router.add_post('/v1/vmfactory/feedback/recover',feedback)
