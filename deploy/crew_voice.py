@@ -37,22 +37,45 @@ def context(state, body):
     profile = VOICES.get(agent)
     if not profile:
         raise Rejected('No custom voice is selected for this member.', 404)
-    text = state.notifications.payload((event, agent, record['agentName'], record['createdAt']))['spokenText']
-    digest = hashlib.sha256(text.encode()).hexdigest()
-    if body['textSHA256'] != digest:
+    announcement = state.notifications.payload((event, agent, record['agentName'], record['createdAt']))['spokenText']
+    accepted = {hashlib.sha256(announcement.encode()).hexdigest()}
+    legacy_titles = {'received': record['agentName'] + ' received your request',
+                     'reply': record['agentName'] + ' sent a message',
+                     'ready': record['agentName'] + ': crew ready',
+                     'completed': record['agentName'] + ': completed',
+                     'blocked': record['agentName'] + ': needs attention'}
+    if record.get('stage') in legacy_titles:
+        legacy = legacy_titles[record['stage']] + '. ' + record['summary']
+        accepted.add(hashlib.sha256(legacy.encode()).hexdigest())
+    digest = body['textSHA256']
+    if digest not in accepted:
         raise Rejected('The spoken text changed.')
-    # Job IDs are service-safe encodings; the original response ID remains explicit.
-    job = 'notice-' + hashlib.sha256((event + ':' + profile[0] + ':' + str(profile[1])).encode()).hexdigest()
+    # Notifications identify the event; speech is the author's actual response,
+    # never the push title or its 240-character preview.
+    source = record.get('messageId') or record['requestId']
+    history = state.data.get('agents', {}).get(agent, {}).get('history', {})
+    item = next((row for row in history.get('items', [])
+                 if row.get('id') == source and row.get('role') == 'assistant'), None)
+    if not item or not isinstance(item.get('content', {}).get('text'), str):
+        raise Rejected('The original assistant response is unavailable.')
+    original = item['content']['text']
+    text = original.replace('**', '').replace('`', '').strip()
+    if not text or len(text) > 12000:
+        raise Rejected('This response is not available for speech.')
+    speech_digest = hashlib.sha256(text.encode()).hexdigest()
+    job = 'reply-' + hashlib.sha256((source + ':' + speech_digest + ':' + profile[0] + ':' + str(profile[1])).encode()).hexdigest()
     return {'eventId': event, 'agentId': agent, 'nativeSessionId': session,
-            'source_response_id': record['requestId'], 'response_id': job,
-            'text_sha256': digest, 'voice_id': profile[0], 'voice_version': profile[1], 'text': text}
+            'source_response_id': source, 'response_id': job,
+            'text_sha256': digest, 'source_text_sha256': hashlib.sha256(original.encode()).hexdigest(),
+            'speech_text_sha256': speech_digest,
+            'voice_id': profile[0], 'voice_version': profile[1], 'text': text}
 
 
 def signed_audio(manifest, expected):
     if (manifest.get('schema') != 'crew.speech.v1'
             or manifest.get('response_id') != expected['response_id']
             or manifest.get('crew_id') != expected['agentId']
-            or manifest.get('text_sha256') != expected['text_sha256']
+            or manifest.get('text_sha256') != expected.get('speech_text_sha256', expected['text_sha256'])
             or manifest.get('voice_id') != expected['voice_id']
             or manifest.get('voice_version') != expected['voice_version']):
         raise Rejected('Generated speech identity does not match this response.')
@@ -82,7 +105,7 @@ async def generate(expected):
                 raise Rejected('The voice service is temporarily unavailable.', 503)
             job = await response.json()
     if (job.get('response_id') != expected['response_id'] or job.get('voice') != expected['voice_id']
-            or job.get('text_sha256') != expected['text_sha256']):
+            or job.get('text_sha256') != expected.get('speech_text_sha256', expected['text_sha256'])):
         raise Rejected('The voice response changed.')
     result = {k: v for k, v in expected.items() if k != 'text'}
     status = job.get('status')
@@ -104,7 +127,9 @@ def install(app, authorized, generator=generate):
             expected = context(request.app['state'], await request.json())
             result = await generator(expected)
             # Revalidate current exact session before handing out a media capability.
-            context(request.app['state'], {k: expected[k] for k in ['eventId', 'agentId', 'nativeSessionId']} | {'textSHA256': expected['text_sha256']})
+            current = context(request.app['state'], {k: expected[k] for k in ['eventId', 'agentId', 'nativeSessionId']} | {'textSHA256': expected['text_sha256']})
+            if current['source_text_sha256'] != expected['source_text_sha256']:
+                raise Rejected('The original response changed during speech generation.')
             return web.json_response(result, headers={'Cache-Control': 'no-store'})
         except Rejected as error:
             return web.json_response({'error': str(error)}, status=error.status)
