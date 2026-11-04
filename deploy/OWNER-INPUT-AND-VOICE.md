@@ -12,38 +12,67 @@ unassigned Operator Inbox, in a `later` stage, for scope and assignment before
 execution. It does not invent acceptance tests, code scopes or worker activity.
 Only the server reads `/etc/dots-hub/task-database.token` (root/dots-ops, 0640).
 
-`crew_voice.py` installs `POST /v1/vmfactory/voice/responses`. Owner requests carry
-`eventId`, `agentId`, `nativeSessionId`, and `textSHA256`. The server resolves the
-actual recorded coordinator notice, current roster/session and selected voice.
-It does not accept arbitrary text, client-selected voices or public requests.
-Initial voice assignment is Soren's adjustable `soren-bright-v1` reproduction
-trial. Other crew continue using device speech until given their own profiles.
+## Interactive crew speech: direct streaming
 
-Garden inference remains private at loopback port 18740. The existing Mac
+Use **POST `/v1/vmfactory/voice/responses/stream`** for interactive app speech.
+`crew_voice_stream.py` is the thin owner-authenticated gateway to Garden's
+`POST /v1/audio/speech/stream`, reached through the existing private connection.
+The app makes one request, consumes NDJSON audio events and schedules PCM buffers
+on AVAudioPlayerNode as they arrive. There are no job-status requests, sleep-based
+status checks, MP3 encoding, R2 uploads or archive verification on this path.
+
+Requests identify either a recorded notice (`eventId`) or an actual completed
+assistant response (`responseId`), with `agentId`, `nativeSessionId` and
+`textSHA256`. `crew_voice.context` resolves the full published reply, never a
+notification title or truncated preview. Exact active roster/session, response
+identity, source hash and assigned voice are checked throughout delivery. An END
+is successful only after all bounded upstream streams finish and global sequence,
+sample count, byte count and incremental PCM SHA match. Disconnect closes the
+upstream and prevents further text-part requests. Full text is partitioned without
+losing characters; HTTP chunk boundaries are not JSON-line boundaries.
+
+Native build 2026110417 implements the incremental PCM player and bounded local
+cache/diagnostics. Its per-response numeric receipt records text-ready,
+request-start, first-audio-received and the first nonzero Core Audio render callback.
+A Mac HTTPS test received first PCM in 2.662 seconds; that is network evidence,
+not physical iPad playback evidence. Keep actual device receipts separate.
+
+`POST /v1/vmfactory/voice/responses` remains a compatibility endpoint for the
+previous completed-file client. It must not be reused for live app narration.
+Existing Garden archive jobs are independent of interactive playback.
+
+## Changing voices requires no app rebuild
+
+The app has no hardcoded speaker profile. The gateway selects each member's
+profile/version from `/etc/dots-hub/crew-voices.json` (root/dots-ops, 0640), after
+checking actual service activation. Current native stream and codec interfaces
+stay the same when a voice changes. Profile selection is pinned for an in-flight
+reply; new replies pick up the new server assignment. Audio identity/cache keys
+include the voice version, source response and exact session/text binding.
+
+Garden owns `/workspace/gemstone/crew-voice/voices.json` and the actual reference
+recordings/transcripts/hashes. Its private POST `/v1/crew/voices/reload` accepts
+`expected_sha256`; tested hot reload retains the existing model/PID and deduplicates
+conditioning by reference identity. Do not restart the model or rebuild iOS merely
+to choose a voice. Soren currently selects `soren-grounded-v2`, version2. All53
+canonical members have real starter assignments, using a small shared palette;
+this is not a claim of53 distinct or individually listened-to voices.
+
+## Private transport and storage
+
+Garden remains private at loopback18740. The existing Mac
 `~/.config/crew/ssh_config` connection **garden** resolves its changing address.
-Two scoped launch agents hold the authenticated, loopback-only bridge:
-`org.fmvision.garden-voice-tunnel` forwards Mac 28740 to Garden 18740;
-`org.fmvision.garden-voice-backend` forwards backend 18740 back to Mac 28740.
-No GPU IP is compiled into iOS. A failed experiment using direct backend SSH
-was stopped and its experimental user service removed. No existing key was changed.
+Two scoped launch agents hold the authenticated loopback-only bridge:
+`org.fmvision.garden-voice-tunnel` forwards Mac28740 to Garden18740;
+`org.fmvision.garden-voice-backend` forwards backend18740 to Mac28740.
+No GPU IP, model credentials, R2 account keys or model weights belong in iOS.
 
-The gateway returns only bounded job state and, after complete identity checks,
-a 120-second signed URL for the exact private MP3. Server-only R2 configuration
-is `/etc/dots-hub/voice-r2.json` (root/dots-ops, 0640). Signing explicitly uses
-AWS Signature V4 and region `auto`; the initial default-signature 401 is retained
-in operational evidence. Never log signed URLs or copy R2 keys into clients.
+Private archived audio, when used independently, is signed using AWS SignatureV4
+with region `auto`; server-only R2 configuration is
+`/etc/dots-hub/voice-r2.json` (root/dots-ops, 0640). Never log signed URLs or keys.
+The initial default-signature401 is preserved in operational evidence.
 
-The native integration is a separate reviewed AgentNotifications.swift overlay,
-handed to the Mac Resident Engineer for the next normal same-bundle release.
-It checks session/account/event/text/voice identity, selected audio SHA/size,
-caches within 32 MiB per account and uses AVAudioPlayer. Device speech is the
-fallback. Cancellation on background and conversation change prevents stale
-playback. Status requests are bounded to the active synthesis job, not a crew
-or task polling loop. Cached audio is not proof of spoken-text intelligibility,
-physical-device playback or app installation.
-
-Validation: `python3 -m unittest test_quick_tasks test_crew_voice -v` uses isolated
-fixtures only. Production probes cover unauthenticated 401 and owner malformed
-400 without creating tasks, notices or model turns. Real Soren trial generation
-and a private signed R2 download passed exact size/SHA validation. Native helper
-passes an iOS SDK type check; deployment/playback evidence remains separate.
+Validation: `python3 -m unittest test_quick_tasks test_crew_voice test_crew_voice_stream -v`
+uses isolated fixtures, including malformed sequences, incomplete END, input
+preservation, authorization and cancellation with no continued model requests.
+Production probes and device playback receipts remain separate from these tests.

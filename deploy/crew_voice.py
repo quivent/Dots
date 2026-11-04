@@ -4,12 +4,15 @@ import hashlib
 import json
 from pathlib import Path
 import re
+import time
 
 from aiohttp import ClientError, ClientSession, ClientTimeout, web
 
 ORIGIN = 'http://127.0.0.1:18740'
 R2 = Path('/etc/dots-hub/voice-r2.json')
 VOICES = {'soren': ('soren-bright-v1', 1)}
+ASSIGNMENTS = Path('/etc/dots-hub/crew-voices.json')
+ROLLOUT_HOLD = Path('/etc/dots-hub/voice-rollout-hold.json')
 
 
 class Rejected(ValueError):
@@ -18,52 +21,97 @@ class Rejected(ValueError):
         self.status = status
 
 
-def context(state, body):
-    if not isinstance(body, dict) or set(body) != {'eventId', 'agentId', 'nativeSessionId', 'textSHA256'}:
+def profiles():
+    selected = dict(VOICES)
+    if ASSIGNMENTS.exists():
+        value = json.loads(ASSIGNMENTS.read_text())
+        if value.get('schema') != 'crew.voice-assignments/1':
+            raise Rejected('Voice assignments are unavailable.', 503)
+        for row in value.get('profiles', []):
+            if row.get('serviceActivated') is not True:
+                continue
+            voice, version = row.get('voice_id'), row.get('voice_version')
+            if (not isinstance(voice, str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,100}', voice)
+                    or type(version) is not int or not 1 <= version <= 10000):
+                raise Rejected('Voice assignment is invalid.', 503)
+            selected[row['crew_id']] = (voice, version)
+    return selected
+
+
+def pin_profile(state, agent, session, source, source_hash, selected):
+    """A server-side voice change applies to new replies; finish in-flight audio."""
+    db = getattr(state, 'db', None)
+    if db is None:
+        return selected
+    key = hashlib.sha256(json.dumps([agent, session, source, source_hash]).encode()).hexdigest()
+    with db:
+        db.execute('INSERT OR IGNORE INTO crew_speech_profile_pins VALUES(?,?,?,?)',
+                   (key, selected[0], selected[1], time.time()))
+        result = db.execute('SELECT voice,version FROM crew_speech_profile_pins WHERE key=?', (key,)).fetchone()
+        db.execute('DELETE FROM crew_speech_profile_pins WHERE key IN '
+                   '(SELECT key FROM crew_speech_profile_pins ORDER BY created DESC LIMIT -1 OFFSET 4096)')
+    return result[0], result[1]
+
+
+def context(state, body, max_characters=12000):
+    base = {'agentId', 'nativeSessionId', 'textSHA256'}
+    if not isinstance(body, dict) or set(body) not in (base | {'eventId'}, base | {'responseId'}):
         raise Rejected('Invalid speech request.', 400)
-    event = body['eventId']
-    if not isinstance(event, str) or not re.fullmatch(r'notice:[a-f0-9]{56}', event):
-        raise Rejected('Invalid speech event.', 400)
-    notices = getattr(state.notifications, 'notices', None)
-    if not isinstance(notices, dict):
-        raise Rejected('Custom voice notices are not enabled on this server.', 503)
-    record = notices.get(event)
-    if not record or record['agentId'] != body['agentId'] or record['nativeSessionId'] != body['nativeSessionId']:
-        raise Rejected('This speech event no longer matches the conversation.')
-    agent, session = record['agentId'], record['nativeSessionId']
+    direct = 'responseId' in body
+    if direct:
+        source = body['responseId']
+        if not isinstance(source, str) or not 1 <= len(source) <= 256:
+            raise Rejected('Invalid response ID.', 400)
+        event = 'response:' + source
+        agent, session = body['agentId'], body['nativeSessionId']
+    else:
+        event = body['eventId']
+        if not isinstance(event, str) or not re.fullmatch(r'notice:[a-f0-9]{56}', event):
+            raise Rejected('Invalid speech event.', 400)
+        notices = getattr(state.notifications, 'notices', None)
+        if not isinstance(notices, dict):
+            raise Rejected('Custom voice notices are not enabled on this server.', 503)
+        record = notices.get(event)
+        if not record or record['agentId'] != body['agentId'] or record['nativeSessionId'] != body['nativeSessionId']:
+            raise Rejected('This speech event no longer matches the conversation.')
+        agent, session = record['agentId'], record['nativeSessionId']
+        source = record.get('messageId') or record['requestId']
     roster = state.data.get('roster', {})
     if not state.notifications.current(agent, session, state.data.get('agents', {}), roster):
         raise Rejected('This crew session changed.')
-    profile = VOICES.get(agent)
+    profile = profiles().get(agent)
     if not profile:
         raise Rejected('No custom voice is selected for this member.', 404)
-    announcement = state.notifications.payload((event, agent, record['agentName'], record['createdAt']))['spokenText']
-    accepted = {hashlib.sha256(announcement.encode()).hexdigest()}
-    legacy_titles = {'received': record['agentName'] + ' received your request',
+    if not direct:
+        announcement = state.notifications.payload((event, agent, record['agentName'], record['createdAt']))['spokenText']
+        accepted = {hashlib.sha256(announcement.encode()).hexdigest()}
+        legacy_titles = {'received': record['agentName'] + ' received your request',
                      'reply': record['agentName'] + ' sent a message',
                      'ready': record['agentName'] + ': crew ready',
                      'completed': record['agentName'] + ': completed',
                      'blocked': record['agentName'] + ': needs attention'}
-    if record.get('stage') in legacy_titles:
-        legacy = legacy_titles[record['stage']] + '. ' + record['summary']
-        accepted.add(hashlib.sha256(legacy.encode()).hexdigest())
+        if record.get('stage') in legacy_titles:
+            legacy = legacy_titles[record['stage']] + '. ' + record['summary']
+            accepted.add(hashlib.sha256(legacy.encode()).hexdigest())
     digest = body['textSHA256']
-    if digest not in accepted:
+    if not direct and digest not in accepted:
         raise Rejected('The spoken text changed.')
     # Notifications identify the event; speech is the author's actual response,
     # never the push title or its 240-character preview.
-    source = record.get('messageId') or record['requestId']
     history = state.data.get('agents', {}).get(agent, {}).get('history', {})
     item = next((row for row in history.get('items', [])
                  if row.get('id') == source and row.get('role') == 'assistant'), None)
     if not item or not isinstance(item.get('content', {}).get('text'), str):
         raise Rejected('The original assistant response is unavailable.')
     original = item['content']['text']
+    if direct and digest != hashlib.sha256(original.encode()).hexdigest():
+        raise Rejected('The original response changed.')
     text = original.replace('**', '').replace('`', '').strip()
-    if not text or len(text) > 12000:
+    if not text or len(text) > max_characters:
         raise Rejected('This response is not available for speech.')
     speech_digest = hashlib.sha256(text.encode()).hexdigest()
-    job = 'reply-' + hashlib.sha256((source + ':' + speech_digest + ':' + profile[0] + ':' + str(profile[1])).encode()).hexdigest()
+    profile = pin_profile(state, agent, session, source, hashlib.sha256(original.encode()).hexdigest(), profile)
+    job = 'reply-' + hashlib.sha256((agent + ':' + session + ':' + source + ':' + speech_digest + ':' + profile[0] + ':' + str(profile[1])).encode()).hexdigest()
     return {'eventId': event, 'agentId': agent, 'nativeSessionId': session,
             'source_response_id': source, 'response_id': job,
             'text_sha256': digest, 'source_text_sha256': hashlib.sha256(original.encode()).hexdigest(),
@@ -98,6 +146,10 @@ def signed_audio(manifest, expected):
 
 
 async def generate(expected):
+    if ROLLOUT_HOLD.exists():
+        hold = json.loads(ROLLOUT_HOLD.read_text())
+        if time.time() < hold.get('expiresAt', 0):
+            return {k: v for k, v in expected.items() if k != 'text'} | {'status': 'queued', 'serviceHold': True}
     async with ClientSession(timeout=ClientTimeout(total=10)) as client:
         async with client.post(ORIGIN + '/v1/crew/responses', json={
                 'response_id': expected['response_id'], 'voice': expected['voice_id'], 'input': expected['text']}) as response:
@@ -118,16 +170,20 @@ async def generate(expected):
 
 
 def install(app, authorized, generator=generate):
+    app['state'].db.execute('CREATE TABLE IF NOT EXISTS crew_speech_profile_pins '
+                            '(key TEXT PRIMARY KEY,voice TEXT NOT NULL,version INTEGER NOT NULL,created REAL NOT NULL)')
+    app['state'].db.commit()
     async def speech(request):
         if request.headers.get('Origin') or not await authorized(request):
             raise web.HTTPUnauthorized()
         try:
             if request.content_length is None or request.content_length > 2048:
                 raise Rejected('Invalid speech request size.', 413)
-            expected = context(request.app['state'], await request.json())
+            body = await request.json()
+            expected = context(request.app['state'], body)
             result = await generator(expected)
             # Revalidate current exact session before handing out a media capability.
-            current = context(request.app['state'], {k: expected[k] for k in ['eventId', 'agentId', 'nativeSessionId']} | {'textSHA256': expected['text_sha256']})
+            current = context(request.app['state'], body)
             if current['source_text_sha256'] != expected['source_text_sha256']:
                 raise Rejected('The original response changed during speech generation.')
             return web.json_response(result, headers={'Cache-Control': 'no-store'})
