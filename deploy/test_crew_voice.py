@@ -77,6 +77,29 @@ class VoiceTests(unittest.TestCase):
         self.assertEqual(pin_profile(self.state, 'soren', 'session', 'reply-two', 'hash', ('grounded', 2)), ('grounded', 2))
         self.assertEqual(pin_profile(self.state, 'soren', 'new-session', 'reply-one', 'hash', ('grounded', 2)), ('grounded', 2))
 
+    def test_crew_kokoro_selection_uses_the_pinned_voice_engine(self):
+        import json
+        import sqlite3
+        import crew_voice
+        self.state.db = sqlite3.connect(':memory:')
+        self.addCleanup(self.state.db.close)
+        self.state.db.execute('CREATE TABLE crew_speech_profile_pins(key TEXT PRIMARY KEY,voice TEXT,version INTEGER,created REAL)')
+        row = {'crew_id': 'soren', 'voice_id': 'kokoro-heart',
+               'voice_version': 1, 'serviceActivated': True}
+        def configure(voice):
+            row['voice_id'] = voice
+            crew_voice.ASSIGNMENTS.write_text(json.dumps({
+                'schema': 'crew.voice-assignments/1', 'profiles': [row]}))
+        configure('kokoro-heart')
+        value = context(self.state, self.body)
+        self.assertEqual((value['voice_id'], value['model']), ('kokoro-heart', 'kokoro'))
+        configure('soren-grounded-v2')
+        pinned = context(self.state, self.body)
+        self.assertEqual((pinned['voice_id'], pinned['model']), ('kokoro-heart', 'kokoro'))
+        self.state.data['agents']['soren']['history']['items'][0]['content']['text'] = 'A new reply.'
+        fresh = context(self.state, self.body)
+        self.assertEqual((fresh['voice_id'], fresh['model']), ('soren-grounded-v2', 'qwen-base'))
+
     def test_submitted_prompt_uses_server_selected_operator_voice_and_exact_user_row(self):
         import json
         import crew_voice

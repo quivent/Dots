@@ -127,6 +127,10 @@ def context(state, body, max_characters=12000):
         raise Rejected('This response is not available for speech.')
     speech_digest = hashlib.sha256(text.encode()).hexdigest()
     profile = pin_profile(state, agent, session, source, hashlib.sha256(original.encode()).hexdigest(), profile)
+    if not prompt:
+        # Select from the pinned server voice, so an in-flight older reply
+        # keeps its original engine when new replies switch to Kokoro.
+        model = 'kokoro' if profile[0].startswith('kokoro-') else 'qwen-base'
     job = ('prompt-' if prompt else 'reply-') + hashlib.sha256((agent + ':' + session + ':' + source + ':' + speech_digest + ':' + profile[0] + ':' + str(profile[1])).encode()).hexdigest()
     return {'eventId': event, 'agentId': agent, 'nativeSessionId': session,
             'source_response_id': source, 'response_id': job,
