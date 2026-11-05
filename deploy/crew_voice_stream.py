@@ -6,6 +6,7 @@ from contextlib import contextmanager
 import hashlib
 import inspect
 import json
+from pathlib import Path
 import re
 import time
 import uuid
@@ -19,6 +20,7 @@ MAX_LINE = 4 * 1024 * 1024
 MAX_SAMPLES_PER_FRAME = 24000 * 45
 MAX_DURATION = 1800
 RATE = 24000
+ROLLOUT_HOLD = Path('/etc/dots-hub/voice-rollout-hold.json')
 CONTEXT_KEYS = ('eventId', 'agentId', 'nativeSessionId', 'source_response_id',
                 'response_id', 'text_sha256', 'source_text_sha256',
                 'speech_text_sha256', 'voice_id', 'voice_version')
@@ -184,6 +186,14 @@ def install(app, authorized, resolver, *, upstream=ORIGIN, maximum_seconds=MAX_D
             raise web.HTTPUnauthorized()
         try:
             body = await read_body(request)
+            # A one-shot deployment hold delays only new submissions; existing
+            # inference and frame validation continue so accepted audio drains.
+            try:
+                expiry = json.loads(ROLLOUT_HOLD.read_text()).get('expiresAt', 0)
+            except (OSError, ValueError, AttributeError):
+                expiry = 0
+            if type(expiry) in (int, float) and time.time() < expiry:
+                await run_until_closed(request, asyncio.sleep(min(90, expiry - time.time())))
             expected = await resolve(request, body)
             parts = split_text(expected['text'])
         except Exception as error:
@@ -208,7 +218,8 @@ def install(app, authorized, resolver, *, upstream=ORIGIN, maximum_seconds=MAX_D
 
         async def fresh():
             value = await resolve(request, body)
-            if any(value[k] != expected[k] for k in CONTEXT_KEYS) or value['text'] != expected['text']:
+            if (any(value[k] != expected[k] for k in CONTEXT_KEYS) or value['text'] != expected['text']
+                    or value.get('model', 'qwen-base') != expected.get('model', 'qwen-base')):
                 raise StreamFailure('source_changed', 'The conversation changed; speech stopped.', 409)
 
         async def pump():
@@ -223,7 +234,7 @@ def install(app, authorized, resolver, *, upstream=ORIGIN, maximum_seconds=MAX_D
                     await fresh()
                     if request.transport is None or request.transport.is_closing():
                         raise ConnectionResetError('Voice client disconnected')
-                    payload = {'model': 'qwen-base', 'voice': expected['voice_id'],
+                    payload = {'model': expected.get('model', 'qwen-base'), 'voice': expected['voice_id'],
                                'input': part, 'max_new_tokens': 512}
                     async with client.post(upstream + '/v1/audio/speech/stream', json=payload) as incoming:
                         if incoming.status != 200:

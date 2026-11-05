@@ -61,7 +61,9 @@ this is not a claim of53 distinct or individually listened-to voices.
 ## Private transport and storage
 
 Garden remains private at loopback18740. The existing Mac
-`~/.config/crew/ssh_config` connection **garden** resolves its changing address.
+`~/.config/crew/ssh_config` connection **gardener** resolves the current voice
+instance. The older **garden** alias is retained separately; do not move unrelated
+crew by changing it silently.
 Two scoped launch agents hold the authenticated loopback-only bridge:
 `org.fmvision.garden-voice-tunnel` forwards Mac28740 to Garden18740;
 `org.fmvision.garden-voice-backend` forwards backend18740 to Mac28740.
@@ -76,3 +78,27 @@ Validation: `python3 -m unittest test_quick_tasks test_crew_voice test_crew_voic
 uses isolated fixtures, including malformed sequences, incomplete END, input
 preservation, authorization and cancellation with no continued model requests.
 Production probes and device playback receipts remain separate from these tests.
+
+## Submitted prompt playback and prompted replies
+
+The stream endpoint also accepts `promptId` instead of `responseId`. It resolves
+an already-observed **user** history item by native message/request ID, verifies
+the exact account-authorized crew/session and original text SHA, and selects the
+private `operatorVoice` assignment. Raw draft text, client-selected voices/models,
+and assistant rows passed as prompts are rejected. The installed male preset is
+`kokoro-adam`; it is not a clone of the operator. Only the stream path forwards
+the selected model, so prompt playback does not use archive/job polling.
+
+The native candidate arms speech only after explicit app message submission.
+It voices the exact observed prompt first, then queues the completed reply in
+that crew member's voice. Account/session changes invalidate authorization;
+unsolicited snapshots and notification milestones cannot authorize narration.
+One shared playback queue leaves a one-second gap between different speakers,
+including operator-to-crew transitions. Native installation and real playback
+acceptance must be recorded separately from source/model checks.
+
+For a controlled model restart, `voice-rollout-hold.json` can delay **new** stream
+requests for at most 90 seconds with one cancellable timer. Accepted inference
+continues to drain. It is not a status poll and must not be inserted into the
+per-frame source validation path. Preserve failed or slow measurements: a fast
+first codec frame does not establish sustainable, gap-free generation.

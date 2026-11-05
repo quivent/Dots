@@ -77,6 +77,33 @@ class VoiceTests(unittest.TestCase):
         self.assertEqual(pin_profile(self.state, 'soren', 'session', 'reply-two', 'hash', ('grounded', 2)), ('grounded', 2))
         self.assertEqual(pin_profile(self.state, 'soren', 'new-session', 'reply-one', 'hash', ('grounded', 2)), ('grounded', 2))
 
+    def test_submitted_prompt_uses_server_selected_operator_voice_and_exact_user_row(self):
+        import json
+        import crew_voice
+        crew_voice.ASSIGNMENTS.write_text(json.dumps({'operatorVoice': {
+            'voice_id': 'kokoro-adam', 'voice_version': 1,
+            'model': 'kokoro', 'serviceActivated': True}}))
+        text = 'This is my submitted question.'
+        items = self.state.data['agents']['soren']['history']['items']
+        items.append({'id': 'native-user-item', 'request_id': 'user-request',
+                      'role': 'user', 'content': {'text': text}})
+        body = {'agentId': 'soren', 'nativeSessionId': 'exact-session',
+                'promptId': 'user-request', 'textSHA256': hashlib.sha256(text.encode()).hexdigest()}
+        value = context(self.state, body)
+        self.assertEqual((value['voice_id'], value['model'], value['speech_role']),
+                         ('kokoro-adam', 'kokoro', 'operator'))
+        self.assertEqual(value['text'], text)
+        for change in [{'textSHA256': 'b'*64}, {'promptId': 'unsubmitted-draft'},
+                       {'promptId': 'actual-assistant-response'}, {'voice': 'client-override'}]:
+            with self.assertRaises(Rejected): context(self.state, body | change)
+        self.notifications.current = lambda *args: False
+        with self.assertRaises(Rejected): context(self.state, body)
+
+    def test_operator_prompt_requires_active_private_server_profile(self):
+        body = {'agentId': 'soren', 'nativeSessionId': 'exact-session',
+                'promptId': 'user-request', 'textSHA256': 'a'*64}
+        with self.assertRaises(Rejected): context(self.state, body)
+
     def test_stale_text_session_unknown_notice_and_client_voice_override_rejected(self):
         for update in [{'textSHA256': 'b' * 64}, {'nativeSessionId': 'other'},
                        {'eventId': 'notice:' + 'b' * 56}, {'voice': 'fabio-warm-v1'}]:

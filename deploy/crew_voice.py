@@ -55,14 +55,16 @@ def pin_profile(state, agent, session, source, source_hash, selected):
 
 def context(state, body, max_characters=12000):
     base = {'agentId', 'nativeSessionId', 'textSHA256'}
-    if not isinstance(body, dict) or set(body) not in (base | {'eventId'}, base | {'responseId'}):
+    if not isinstance(body, dict) or set(body) not in (base | {'eventId'}, base | {'responseId'}, base | {'promptId'}):
         raise Rejected('Invalid speech request.', 400)
-    direct = 'responseId' in body
+    prompt = 'promptId' in body
+    direct = 'responseId' in body or prompt
+    model = 'qwen-base'
     if direct:
-        source = body['responseId']
+        source = body['promptId' if prompt else 'responseId']
         if not isinstance(source, str) or not 1 <= len(source) <= 256:
             raise Rejected('Invalid response ID.', 400)
-        event = 'response:' + source
+        event = ('prompt:' if prompt else 'response:') + source
         agent, session = body['agentId'], body['nativeSessionId']
     else:
         event = body['eventId']
@@ -79,7 +81,20 @@ def context(state, body, max_characters=12000):
     roster = state.data.get('roster', {})
     if not state.notifications.current(agent, session, state.data.get('agents', {}), roster):
         raise Rejected('This crew session changed.')
-    profile = profiles().get(agent)
+    if prompt:
+        try:
+            selected = json.loads(ASSIGNMENTS.read_text()).get('operatorVoice', {})
+        except (OSError, ValueError):
+            selected = {}
+        voice, version = selected.get('voice_id'), selected.get('voice_version')
+        model = selected.get('model')
+        if (selected.get('serviceActivated') is not True or model not in ('kokoro', 'qwen-base')
+                or not isinstance(voice, str) or not re.fullmatch('[A-Za-z0-9_-]{1,100}', voice)
+                or type(version) is not int or not 1 <= version <= 10000):
+            raise Rejected('The operator voice is not ready.', 503)
+        profile = voice, version
+    else:
+        profile = profiles().get(agent)
     if not profile:
         raise Rejected('No custom voice is selected for this member.', 404)
     if not direct:
@@ -100,7 +115,8 @@ def context(state, body, max_characters=12000):
     # never the push title or its 240-character preview.
     history = state.data.get('agents', {}).get(agent, {}).get('history', {})
     item = next((row for row in history.get('items', [])
-                 if row.get('id') == source and row.get('role') == 'assistant'), None)
+                 if (row.get('id') == source or prompt and row.get('request_id') == source)
+                 and row.get('role') == ('user' if prompt else 'assistant')), None)
     if not item or not isinstance(item.get('content', {}).get('text'), str):
         raise Rejected('The original assistant response is unavailable.')
     original = item['content']['text']
@@ -111,12 +127,13 @@ def context(state, body, max_characters=12000):
         raise Rejected('This response is not available for speech.')
     speech_digest = hashlib.sha256(text.encode()).hexdigest()
     profile = pin_profile(state, agent, session, source, hashlib.sha256(original.encode()).hexdigest(), profile)
-    job = 'reply-' + hashlib.sha256((agent + ':' + session + ':' + source + ':' + speech_digest + ':' + profile[0] + ':' + str(profile[1])).encode()).hexdigest()
+    job = ('prompt-' if prompt else 'reply-') + hashlib.sha256((agent + ':' + session + ':' + source + ':' + speech_digest + ':' + profile[0] + ':' + str(profile[1])).encode()).hexdigest()
     return {'eventId': event, 'agentId': agent, 'nativeSessionId': session,
             'source_response_id': source, 'response_id': job,
             'text_sha256': digest, 'source_text_sha256': hashlib.sha256(original.encode()).hexdigest(),
             'speech_text_sha256': speech_digest,
-            'voice_id': profile[0], 'voice_version': profile[1], 'text': text}
+            'voice_id': profile[0], 'voice_version': profile[1], 'text': text,
+            'model': model, 'speech_role': 'operator' if prompt else 'crew'}
 
 
 def signed_audio(manifest, expected):
