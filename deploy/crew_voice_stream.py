@@ -2,7 +2,7 @@
 import asyncio
 import base64
 import binascii
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 import hashlib
 import inspect
 import json
@@ -11,7 +11,7 @@ import re
 import time
 import uuid
 
-from aiohttp import ClientError, ClientSession, ClientTimeout, web
+from aiohttp import ClientError, ClientSession, ClientTimeout, TCPConnector, web
 
 ORIGIN = 'http://127.0.0.1:18740'
 MAX_TEXT = 64000
@@ -184,6 +184,19 @@ async def read_body(request):
 
 
 def install(app, authorized, resolver, *, upstream=ORIGIN, maximum_seconds=MAX_DURATION):
+    # Reuse the SSH-forwarded HTTP connection across utterances. Reopening the
+    # forward for each request costs another remote channel-open round trip.
+    session_key = web.AppKey('crew_voice_upstream', ClientSession)
+
+    async def upstream_lifetime(application):
+        timeout = ClientTimeout(total=None, connect=10, sock_read=60)
+        async with ClientSession(timeout=timeout,
+                                 connector=TCPConnector(keepalive_timeout=600)) as client:
+            application[session_key] = client
+            yield
+
+    app.cleanup_ctx.append(upstream_lifetime)
+
     async def resolve(request, body):
         value = resolver(request.app['state'], body, max_characters=MAX_TEXT)
         if inspect.isawaitable(value):
@@ -238,8 +251,9 @@ def install(app, authorized, resolver, *, upstream=ORIGIN, maximum_seconds=MAX_D
                         'mode': 'phrase' if expected.get('model') == 'kokoro' else 'sentence',
                         'format': 'pcm_s16le', 'sample_rate': RATE,
                         'channels': 1, 'parts': len(parts)})
-            timeout = ClientTimeout(total=None, connect=10, sock_read=60)
-            async with ClientSession(timeout=timeout) as client:
+            # The application owns this session; cancellation closes only this
+            # response, never another owner's accepted utterance.
+            with nullcontext(request.app[session_key]) as client:
                 for part in parts:
                     await fresh()
                     if request.transport is None or request.transport.is_closing():

@@ -57,6 +57,7 @@ class StreamTests(unittest.IsolatedAsyncioTestCase):
         self.body = {'eventId': 'notice-fixture', 'agentId': 'fixture-agent',
                      'nativeSessionId': 'fixture-native-session', 'textSHA256': 'a' * 64}
         self.requests, self.resolve_calls = [], []
+        self.upstream_transports = []
         self.mode = 'good'
         self.frames = None
         self.first_part = asyncio.Event()
@@ -96,6 +97,7 @@ class StreamTests(unittest.IsolatedAsyncioTestCase):
         await self.upstream.close()
 
     async def producer(self, request):
+        self.upstream_transports.append(request.transport)
         body = await request.json()
         self.requests.append({'body': body, 'authorization': request.headers.get('Authorization')})
         self.first_part.set()
@@ -173,6 +175,18 @@ class StreamTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([f['sequence'] for f in audios], list(range(len(audios))))
         self.assertEqual(len({f['stream_id'] for f in frames}), 1)
         self.assertEqual(frames[-1]['pcm_sha256'], hashlib.sha256(PCM * len(self.requests)).hexdigest())
+
+    async def test_separate_utterances_reuse_connection_and_cleanup_closes_it(self):
+        for _ in range(2):
+            response, frames = await self.fetch()
+            self.assertEqual(response.status, 200)
+            self.assertEqual(frames[-1]['type'], 'end')
+        self.assertEqual(len(self.upstream_transports), 2)
+        self.assertIs(self.upstream_transports[0], self.upstream_transports[1])
+        transport = self.upstream_transports[0]
+        await self.client.close()
+        await asyncio.sleep(0.01)
+        self.assertTrue(transport.is_closing())
 
     async def test_auth_origin_and_bad_context_do_not_contact_model(self):
         self.assertEqual((await self.fetch(headers={}))[0].status, 401)
