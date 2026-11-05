@@ -29,6 +29,18 @@ def upstream_end(chunks=1, identity='upstream'):
 
 
 class SplitTests(unittest.TestCase):
+    def test_short_first_phrase_preserves_text_and_later_capacity(self):
+        text = 'A real response should start speaking before its long first sentence has finished rendering. ' * 12
+        parts = module.split_text(text, first_limit=64)
+        self.assertEqual(''.join(parts), text)
+        self.assertLessEqual(len(parts[0]), 64)
+        self.assertTrue(parts[0][-1].isspace())
+        self.assertTrue(any(len(part) > 64 for part in parts[1:]))
+        self.assertEqual(module.split_text('Short reply.', first_limit=64), ['Short reply.'])
+        for invalid in [0, True, 601]:
+            with self.assertRaises(ValueError):
+                module.split_text(text, first_limit=invalid)
+
     def test_every_unicode_whitespace_character_is_retained(self):
         text = (' Hello.\n  World! 😀e\u0301\t' * 200) + 'x' * 1100 + '\n' * 700
         parts = module.split_text(text)

@@ -32,15 +32,24 @@ class StreamFailure(ValueError):
         self.code, self.status = code, status
 
 
-def split_text(text, limit=MAX_PART):
+def split_text(text, limit=MAX_PART, first_limit=None):
     """Preserve every character and respect Garden's twelve-sentence ceiling."""
     if not isinstance(text, str) or not text.strip() or len(text) > MAX_TEXT:
         raise StreamFailure('invalid_text', 'The response cannot be spoken.', 413)
     if type(limit) is not int or not 1 <= limit <= 600:
         raise ValueError('Invalid input-part limit')
+    if first_limit is not None and (type(first_limit) is not int or not 1 <= first_limit <= limit):
+        raise ValueError('Invalid first input-part limit')
     parts, start = [], 0
     while start < len(text):
-        end = min(start + limit, len(text))
+        budget = first_limit if not parts and first_limit is not None else limit
+        end = min(start + budget, len(text))
+        if not parts and first_limit is not None and end < len(text):
+            # Kokoro renders a phrase before yielding PCM. Give it a short
+            # first phrase, then keep larger following parts ahead of playback.
+            boundaries = list(re.finditer(r'\s+', text[start:end]))
+            if boundaries:
+                end = start + boundaries[-1].end()
         candidate = text[start:end]
         boundaries = list(re.finditer(r'(?<=[.!?])\s+', candidate))
         if len([x for x in re.split(r'(?<=[.!?])\s+', candidate) if x.strip()]) > 12:
@@ -195,7 +204,7 @@ def install(app, authorized, resolver, *, upstream=ORIGIN, maximum_seconds=MAX_D
             if type(expiry) in (int, float) and time.time() < expiry:
                 await run_until_closed(request, asyncio.sleep(min(90, expiry - time.time())))
             expected = await resolve(request, body)
-            parts = split_text(expected['text'])
+            parts = split_text(expected['text'], first_limit=64 if expected.get('model') == 'kokoro' else None)
         except Exception as error:
             status = getattr(error, 'status', 503)
             status = status if type(status) is int and 400 <= status <= 599 else 503
@@ -226,7 +235,8 @@ def install(app, authorized, resolver, *, upstream=ORIGIN, maximum_seconds=MAX_D
             nonlocal sequence, samples, audio_bytes, first_audio
             await response.prepare(request)
             await emit({'type': 'start', 'stream_id': stream_id, **identity,
-                        'mode': 'sentence', 'format': 'pcm_s16le', 'sample_rate': RATE,
+                        'mode': 'phrase' if expected.get('model') == 'kokoro' else 'sentence',
+                        'format': 'pcm_s16le', 'sample_rate': RATE,
                         'channels': 1, 'parts': len(parts)})
             timeout = ClientTimeout(total=None, connect=10, sock_read=60)
             async with ClientSession(timeout=timeout) as client:
