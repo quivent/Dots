@@ -60,13 +60,19 @@ this is not a claim of53 distinct or individually listened-to voices.
 
 ## Private transport and storage
 
-Garden remains private at loopback18740. The existing Mac
-`~/.config/crew/ssh_config` connection **gardener** resolves the current voice
-instance. The older **garden** alias is retained separately; do not move unrelated
-crew by changing it silently.
-Two scoped launch agents hold the authenticated loopback-only bridge:
-`org.fmvision.garden-voice-tunnel` forwards Mac28740 to Garden18740;
-`org.fmvision.garden-voice-backend` forwards backend18740 to Mac28740.
+Gardener remains private at loopback18740. Backstage's user service
+`fmvision-gardener-voice-tunnel.service` now forwards backend18740 **directly** to
+Gardener18740. Its runtime-only `~/.config/crew/voice_ssh_config` alias
+`gardener-voice` pins the current address, port, host key and dedicated private
+key. The remote public key is restricted to forwarding to the model's loopback
+port with shell commands disabled. The deploy template contains no host address
+or credential. Keep this connection reference separate from unrelated crew hosts.
+
+The previous Mac launch agents `org.fmvision.garden-voice-tunnel` and
+`org.fmvision.garden-voice-backend` are disabled; their definitions and recovery
+receipts are retained. They must not autostart and race for backend18740. Speech
+no longer needs the Mac's Wi-Fi, uptime or memory capacity. Native app/backend
+auth, exact source hashes and voice-profile selection remain unchanged.
 No GPU IP, model credentials, R2 account keys or model weights belong in iOS.
 
 Private archived audio, when used independently, is signed using AWS SignatureV4

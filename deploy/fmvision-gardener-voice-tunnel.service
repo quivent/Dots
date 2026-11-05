@@ -1,0 +1,13 @@
+[Unit]
+Description=Private FMVision speech link directly to Gardener
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/ssh -F %h/.config/crew/voice_ssh_config -o ExitOnForwardFailure=yes -o ServerAliveInterval=10 -o ServerAliveCountMax=2 -N -L 127.0.0.1:18740:127.0.0.1:18740 gardener-voice
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+
+[Install]
+WantedBy=default.target
