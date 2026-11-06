@@ -20,6 +20,29 @@ from .api import ApiError
 PREFIX = 'mac-codex-'
 
 
+def native_reply_bindings(entries):
+    """Bind visible replies to the preceding native user within their turn.
+
+    Entries arrive newest first. Only identifiers leave this function; hidden
+    tool/reasoning data is never published. A later steer replaces that turn's
+    request identity instead of authorizing its replies for an earlier prompt.
+    """
+    requests, replies = {}, {}
+    for entry in reversed(entries):
+        turn = entry.get('turnId')
+        if not isinstance(turn, str) or not turn:
+            continue
+        item = entry.get('item', {})
+        if item.get('type') == 'userMessage':
+            request = item.get('clientId') or item.get('id')
+            if isinstance(request, str) and request:
+                requests[turn] = request
+        elif item.get('type') == 'agentMessage' and turn in requests:
+            replies[item['id']] = {'turn_id': turn,
+                                   'reply_to_request_id': requests[turn]}
+    return replies
+
+
 class DaemonRPC:
     def __init__(self, home):
         self.path = Path(home) / 'app-server-control/app-server-control.sock'
@@ -114,13 +137,15 @@ class LocalCodexBridge:
     def history(self, identity, query, call):
         cursor = query.get('before')
         rows = []
+        entries = []
         # Tool-heavy coordinator turns can contain hundreds of hidden items.
         # Bound each read while preserving a cursor for all earlier history.
-        for _ in range(10):
+        for read_count in range(1, 11):
             params = {'threadId': identity, 'limit': 100, 'sortDirection': 'desc'}
             if cursor:
                 params['cursor'] = cursor
             page = call('thread/items/list', params)
+            entries.extend(page['data'])
             for entry in page['data']:
                 item = entry['item']
                 mine = item['type'] == 'userMessage'
@@ -137,7 +162,10 @@ class LocalCodexBridge:
                              'role': 'user' if mine else 'assistant', 'sender_is_self': mine,
                              'sender_display_name': self.sessions[identity]['name'],
                              'created_at': (entry.get('startedAtMs') or item.get('startedAtMs') or 0) / 1000,
-                             'request_id': request})
+                             'request_id': request,
+                             'turn_id': entry.get('turnId'),
+                             'phase': item.get('phase') if not mine else None,
+                             'completed_at': (entry.get('completedAtMs') or item.get('completedAtMs') or 0) / 1000})
                 if request:
                     with self.lock:
                         self.conn.execute("UPDATE sends SET state='accepted',message=? WHERE id=? AND thread=?",
@@ -146,7 +174,25 @@ class LocalCodexBridge:
             cursor = page.get('nextCursor')
             if rows or not cursor:
                 break
-        return {'items': list(reversed(rows)), 'prev_cursor': cursor}
+        # Keep the public page/cursor unchanged. Extra bounded reads recover
+        # only the request association hidden behind tool-heavy native pages.
+        history_cursor = cursor
+        visible = {row['id'] for row in rows if row['role'] == 'assistant'}
+        identified = {entry['item']['id'] for entry in entries
+                      if entry.get('turnId') and entry['item'].get('id') in visible}
+        bindings = native_reply_bindings(entries)
+        for _ in range(read_count, 10):
+            if not cursor or identified <= bindings.keys():
+                break
+            page = call('thread/items/list', {'threadId': identity, 'limit': 100,
+                        'sortDirection': 'desc', 'cursor': cursor})
+            entries.extend(page['data'])
+            cursor = page.get('nextCursor')
+            bindings = native_reply_bindings(entries)
+        for row in rows:
+            if row['role'] == 'assistant':
+                row.update(bindings.get(row['id'], {}))
+        return {'items': list(reversed(rows)), 'prev_cursor': history_cursor}
 
     def submit(self, identity, body, call):
         request = body.get('request_id')
