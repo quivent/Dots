@@ -3,6 +3,7 @@
 import hashlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
+import os
 from pathlib import Path
 import secrets
 import socket
@@ -16,6 +17,7 @@ import uuid
 from studio_access import normalize_grant, stored_grant, migrate_grants
 import websocket
 import bank_client
+import install_enrollment
 
 ROOT = Path('/var/lib/dots-ops')
 DATA = ROOT / 'chat-hub'
@@ -177,6 +179,7 @@ class Hub:
             if 'author_id' not in [r[1] for r in self.conn.execute('PRAGMA table_info(' + table + ')')]:
                 self.conn.execute('ALTER TABLE ' + table + ' ADD COLUMN author_id TEXT')
         migrate_grants(self.conn)
+        install_enrollment.migrate(self.conn)
         self.conn.execute("UPDATE jobs SET status='unknown' WHERE status IN ('running','queued','approval_needed')")
         self.conn.execute("UPDATE approvals SET status='stale' WHERE status='pending'")
         self.conn.commit()
@@ -261,13 +264,39 @@ class Hub:
                     self.conn.executemany('INSERT INTO room_people VALUES(?,?)', [(identity, p) for p in people])
         return self.profile(self.db('SELECT * FROM rooms WHERE id=?', (identity,), one=True))
 
+    def team_studio_grant(self, grant):
+        """Derive shared access from the canonical, owner-bound human identity.
+
+        Never infer identity from a phone/display name. An empty explicit grant
+        remains a denial. Recheck membership on each authenticated health read
+        so retirement/removal takes effect without a second authorization list.
+        """
+        if not grant or not grant.get('crew_member_id') or not grant.get('capabilities'):
+            return grant
+        member_id = grant['crew_member_id']
+        try:
+            database = Path(os.environ.get('FMVISION_DATABASE', '/var/lib/fmvision/fmvision.sqlite'))
+            with sqlite3.connect(database.as_uri() + '?mode=ro', uri=True) as central:
+                row = central.execute("SELECT payload FROM records WHERE key='roster'").fetchone()
+            roster = json.loads(row[0]) if row else {}
+            member = next((r for r in roster.get('crew', []) if r.get('id') == member_id), None)
+        except (sqlite3.Error, OSError, ValueError, TypeError):
+            return None  # Bound team access fails closed if authority is unavailable.
+        if (not member or member.get('kind') != 'human'
+                or member.get('source') != 'apple-development-team'
+                or member.get('lifecycle') != 'active'
+                or member.get('disabled') is True or member.get('revoked') is True):
+            return None
+        return dict(grant, capabilities=sorted(set(grant['capabilities']) |
+                    {'crew.read', 'crew.chat', 'tasks.read'}))
+
     def studio_access(self, token):
         device = self.db('SELECT studio_access FROM devices WHERE token_hash=? AND revoked=0',
                          (hashlib.sha256(token.encode()).hexdigest(),), one=True)
-        return stored_grant(device['studio_access']) if device else None
+        return self.team_studio_grant(stored_grant(device['studio_access'])) if device else None
 
     def set_studio_access(self, identity, value):
-        grant = normalize_grant(value)
+        grant = self.team_studio_grant(normalize_grant(value))
         with self.lock, self.conn:
             if not self.conn.execute('SELECT 1 FROM devices WHERE id=? AND revoked=0', (identity,)).fetchone():
                 return None
@@ -276,7 +305,7 @@ class Hub:
         return {'id': identity, 'studio_access': grant}
 
     def invitation(self, token, studio_access=None):
-        grant = normalize_grant(studio_access)
+        grant = self.team_studio_grant(normalize_grant(studio_access))
         owner = hashlib.sha256(token.encode()).hexdigest()
         identity, code = str(uuid.uuid4()), f'{secrets.randbelow(100_000_000):08d}'
         expires = time.time() + 600
@@ -293,12 +322,14 @@ class Hub:
                           (hashlib.sha256(code.encode()).hexdigest(), time.time()), one=True)
             if not row: return None
             identity, token = str(uuid.uuid4()), secrets.token_urlsafe(32)
+            grant = self.team_studio_grant(stored_grant(row['studio_access']))
+            serialized_grant = json.dumps(grant) if grant is not None else None
             with self.conn:
                 self.conn.execute('UPDATE invitations SET used=1 WHERE id=?', (row['id'],))
                 self.conn.execute('INSERT INTO devices(id,token_hash,name,created,revoked,studio_access) VALUES(?,?,?,?,0,?)',
-                                  (identity, hashlib.sha256(token.encode()).hexdigest(), name, time.time(), row['studio_access']))
+                                  (identity, hashlib.sha256(token.encode()).hexdigest(), name, time.time(), serialized_grant))
             return {'token': token, 'name': 'Dots server', 'scope': 'hosted', 'device_id': identity,
-                    'studio_access': stored_grant(row['studio_access'])}
+                    'studio_access': grant}
 
     def profile(self, room):
         members = json.loads(room['members'])
@@ -493,7 +524,8 @@ class Handler(BaseHTTPRequestHandler):
             token = header[7:] if header.startswith('Bearer ') else ''
             parsed = urlsplit(self.path)
             pairing = method == 'POST' and parsed.path == '/v1/pair' and not parsed.query
-            if not pairing and not hub.authorized(token):
+            enrollment = parsed.path in ('/v1/installations', '/v1/installations/current') and not parsed.query
+            if not pairing and not enrollment and not hub.authorized(token):
                 return self.reply(401, {'error': 'Reconnect this phone to the Dots server.'})
             path = parsed.path.removeprefix('/v1')
             length = int(self.headers.get('Content-Length', '0'))
@@ -502,6 +534,17 @@ class Handler(BaseHTTPRequestHandler):
             body = json.loads(self.rfile.read(length)) if length else {}
             if not isinstance(body, dict): raise ValueError('Expected an object')
             query = parse_qs(parsed.query)
+            if enrollment:
+                if parsed.path == '/v1/installations' and method == 'POST':
+                    with hub.lock:
+                        now = time.monotonic()
+                        hub.pair_attempts = [t for t in hub.pair_attempts if t > now - 60]
+                        if len(hub.pair_attempts) >= 20: return self.reply(429, {'error': 'Too many installation attempts. Wait one minute.'})
+                        hub.pair_attempts.append(now)
+                    return self.reply(200, install_enrollment.register(hub, token, body))
+                if parsed.path == '/v1/installations/current' and method == 'GET':
+                    return self.reply(200, install_enrollment.status(hub, token))
+                raise ValueError('Invalid installation action')
             if pairing:
                 if set(body) - {'code', 'name'} or not isinstance(body.get('code'), str) or len(body['code']) not in (6, 8) or not body['code'].isascii() or not body['code'].isdigit():
                     raise ValueError('Invalid pairing code')
@@ -532,6 +575,15 @@ class Handler(BaseHTTPRequestHandler):
                 if not isinstance(name, str) or not name.strip() or len(name) > 80 or any(ord(c) < 32 for c in name): raise ValueError('Enter your display name')
                 hub.db('UPDATE people SET name=? WHERE id=?', (name.strip(), person))
                 return self.reply(200, {'id': person, 'name': name.strip()})
+            if path.startswith('/hosted/installations'):
+                if member: return self.reply(403, {'error': 'Only an owner can attach installations.'})
+                if path == '/hosted/installations' and method == 'GET':
+                    return self.reply(200, {'items': install_enrollment.listing(hub)})
+                if path.startswith('/hosted/installations/') and path.endswith('/attach') and method == 'POST':
+                    if set(body) != {'crew_member_id'}: raise ValueError('A canonical team member is required')
+                    result = install_enrollment.attach(hub, path.split('/')[3], body['crew_member_id'])
+                    return self.reply(200 if result else 404, result or {'error': 'Installation not found'})
+                raise ValueError('Invalid installation action')
             if path.startswith('/hosted/invitations') or path.startswith('/hosted/devices'):
                 if member: return self.reply(403, {'error': 'Only an owner connection can invite or revoke phones.'})
                 if path == '/hosted/invitations' and method == 'POST':
