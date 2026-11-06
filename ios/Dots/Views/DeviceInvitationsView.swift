@@ -1,15 +1,28 @@
 import SwiftUI
 
+private struct CrewHumanMembersKey: EnvironmentKey { static let defaultValue: [String: String] = [:] }
+extension EnvironmentValues {
+    var crewHumanMembers: [String: String] {
+        get { self[CrewHumanMembersKey.self] }
+        set { self[CrewHumanMembersKey.self] = newValue }
+    }
+}
+
 private struct InvitedPhone: Identifiable {
     let id: String
     let name: String
     let revoked: Bool
     let studioRead: Bool
+    let crewMemberID: String?
+    let developer: Bool
 }
 
 struct DeviceInvitationsView: View {
     @Environment(DotsStore.self) private var store
+    @Environment(\.crewHumanMembers) private var humanMembers
     @State private var includeWork = true
+    @State private var developer = false
+    @State private var memberID = ""
     @State private var code: String?
     @State private var expires: Date?
     @State private var phones: [InvitedPhone] = []
@@ -24,19 +37,28 @@ struct DeviceInvitationsView: View {
             Section {
                 Text("Invite a phone to your hosted Dots, shared chats and research Bank. The invited person can send approved Codex turns using this server’s allowance. Your Mac-backed ChatGPT account Dots are not included.")
                 Toggle("Include shared Work tasks and crew",isOn:$includeWork)
-                Text("Work access is read only. Private crew conversations, agent controls and private scene assets are not shared.").font(.footnote).foregroundStyle(.secondary)
+                if !humanMembers.isEmpty {
+                    Toggle("Internal developer · Crew chat and controls", isOn: $developer)
+                    if developer {
+                        Picker("Crew member", selection: $memberID) {
+                            Text("Choose a person").tag("")
+                            ForEach(humanMembers.keys.sorted(), id: \.self) { id in Text(humanMembers[id] ?? id).tag(id) }
+                        }
+                    }
+                }
+                Text(developer ? "This named invitation enables Crew conversations and session controls. Pairing administration and private scene assets remain owner-only." : "Work access is read only. Private crew conversations and controls are not shared.").font(.footnote).foregroundStyle(.secondary)
                 Button(code == nil ? "Create invitation" : "Create a new invitation") {
                     run {
                         try await createInvitation()
                     }
-                }.disabled(working).accessibilityIdentifier("create-server-invitation")
+                }.disabled(working || (developer && humanMembers[memberID] == nil)).accessibilityIdentifier("create-server-invitation")
                 Button {
                     run {
                         try await createInvitation()
                         if let code, let expires { nearby.start(code: code, expires: expires) }
                     }
                 } label: { Label("Invite nearby", systemImage: "antenna.radiowaves.left.and.right") }
-                    .disabled(working || nearby.active).accessibilityIdentifier("invite-nearby")
+                    .disabled(working || nearby.active || (developer && humanMembers[memberID] == nil)).accessibilityIdentifier("invite-nearby")
                 if !nearby.status.isEmpty { Text(nearby.status).font(.footnote).foregroundStyle(.secondary) }
                 if nearby.active { Button("Stop nearby sharing") { nearby.stop() } }
             } footer: { Text("One use, valid for ten minutes. A new invitation replaces your previous unused code. No Mac access or ChatGPT sign-in is needed on the invited phone.") }
@@ -56,6 +78,14 @@ struct DeviceInvitationsView: View {
                     HStack {
                         VStack(alignment:.leading){
                             Text(phone.name)
+                            if let id=phone.crewMemberID,let name=humanMembers[id]{Text(name + (phone.developer ? " · Developer":"")).font(.caption).foregroundStyle(.secondary)}
+                            if !phone.revoked, !humanMembers.isEmpty {
+                                Menu("Link developer Crew member") {
+                                    ForEach(humanMembers.keys.sorted(),id: \.self){ id in
+                                        Button(humanMembers[id] ?? id){ run{try await setDeveloper(phone,id:id)} }
+                                    }
+                                }.font(.caption).disabled(working)
+                            }
                             if !phone.revoked{Button(phone.studioRead ? "Remove Work access":"Allow Work tasks and crew"){
                                 run{
                                     guard let account=store.account else{throw APIError.invalidSession}
@@ -107,14 +137,24 @@ struct DeviceInvitationsView: View {
             guard let id = $0["id"] as? String, let name = $0["name"] as? String else { return nil }
             let grant=$0["studio_access"] as? [String:Any]
             let capabilities=Set(grant?["capabilities"] as? [String] ?? [])
-            return InvitedPhone(id: id, name: name, revoked: ($0["revoked"] as? Int ?? 0) != 0,studioRead:grant?["project"] as? String=="fmvisual" && capabilities.isSuperset(of:["tasks.read","crew.read"]))
+            return InvitedPhone(id: id, name: name, revoked: ($0["revoked"] as? Int ?? 0) != 0,studioRead:grant?["project"] as? String=="fmvisual" && capabilities.isSuperset(of:["tasks.read","crew.read"]),crewMemberID:grant?["crew_member_id"] as? String,developer:capabilities.contains("crew.chat"))
         }
     }
 
+    private func developerGrant(_ id:String)->[String:Any]{
+        ["project":"fmvisual","capabilities":["tasks.read","crew.read","crew.chat","crew.control"],"crew_member_id":id]
+    }
+    @MainActor private func setDeveloper(_ phone:InvitedPhone,id:String)async throws{
+        guard let account=store.account,humanMembers[id] != nil else{throw APIError.invalidSession}
+        _ = try await store.api.request("POST","/hosted/devices/"+DotsAPI.segment(phone.id)+"/studio-access",account:account,body:["studio_access":developerGrant(id)])
+        try await reload()
+    }
     @MainActor private func createInvitation() async throws {
         nearby.stop()
         guard let account = store.account else { throw APIError.invalidSession }
-        let result = try await store.api.request("POST", "/hosted/invitations", account: account, body: includeWork ? ["studio_access":["project":"fmvisual","capabilities":["tasks.read","crew.read"]]]:[:])
+        if developer && humanMembers[memberID] == nil { throw APIError.invalidResponse }
+        let body:[String:Any] = developer ? ["studio_access":developerGrant(memberID)] : (includeWork ? ["studio_access":["project":"fmvisual","capabilities":["tasks.read","crew.read"]]]:[:])
+        let result = try await store.api.request("POST", "/hosted/invitations", account: account, body: body)
         guard let value = result["code"] as? String, let seconds = result["expires_in"] as? Int else { throw APIError.invalidResponse }
         code = value; expires = Date().addingTimeInterval(Double(seconds))
     }

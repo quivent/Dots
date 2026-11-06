@@ -221,7 +221,9 @@ class Hub:
         self.db('INSERT OR IGNORE INTO people VALUES(?,?)', ('owner', 'Server owner'))
         for device in self.db('SELECT id,name FROM devices WHERE revoked=0'):
             self.db('INSERT OR IGNORE INTO people VALUES(?,?)', (device['id'], device['name']))
-        return [dict(p, is_self=p['id'] == current) for p in self.db("SELECT * FROM people WHERE id='owner' OR id IN (SELECT id FROM devices WHERE revoked=0) ORDER BY name")]
+        bindings = {d['id']: (stored_grant(d['studio_access']) or {}).get('crew_member_id')
+                    for d in self.db('SELECT id,studio_access FROM devices WHERE revoked=0')}
+        return [dict(p, is_self=p['id'] == current, crew_member_id=bindings.get(p['id'])) for p in self.db("SELECT * FROM people WHERE id='owner' OR id IN (SELECT id FROM devices WHERE revoked=0) ORDER BY name")]
 
     def can_access(self, room, person):
         return not self.db('SELECT room FROM private_rooms WHERE room=?', (room,), one=True) or self.db('SELECT person FROM room_people WHERE room=? AND person=?', (room, person), one=True) is not None

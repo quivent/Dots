@@ -96,8 +96,7 @@ class State:
 
     def reader_view(self, access):
         source = dict(self.data)
-        source['agents'] = {identity: dict(value, relayOnline=any(identity in scope['agents'] for scope in self.publisher_scopes.values()))
-                            for identity, value in self.data.get('agents', {}).items()}
+        source['agents'] = self.agents()
         projected = access.snapshot(source)
         if access.key not in self.read_views:
             self.read_views[access.key] = {'sequence': 0, 'revision': view_digest(projected),
@@ -346,13 +345,16 @@ async def snapshot(request):
 async def history(request):
     if request.headers.get('Origin'):
         raise web.HTTPUnauthorized()
-    if not await viewer_authorized(request):
-        health = request.get('studio_identity_health')
-        if isinstance(health,dict) and health.get('scope')=='hosted':
-            return web.json_response({'error':'studio_read_only','message':'Private agent history requires an owner connection.'},status=403)
+    access = await viewer_access(request)
+    if access is None:
         raise web.HTTPUnauthorized()
+    if not access.allows('send'):
+        return web.json_response({'error':'studio_read_only','message':'Crew chat access is required.'},status=403)
     agent=request.match_info.get('agent','maestro')
     if agent!='maestro' and agent not in request.app['state'].data.get('agents',{}):raise web.HTTPNotFound()
+    if not access.owner:
+        allowed = access.snapshot(request.app['state'].snapshot()).get('agents', {})
+        if agent not in allowed: raise web.HTTPNotFound()
     expected=request.query.get('nativeSessionId')
     if expected is not None and request.app['state'].agents().get(agent,{}).get('nativeSessionId') != expected:
         return web.json_response({'error':'The original native session is no longer bound to this conversation'},status=409)
@@ -423,21 +425,34 @@ async def connect(request):
                     identity, operation, body = value.get('id'), value.get('operation'), value.get('body', {})
                     agent=value.get('agentId','maestro')
                     if not isinstance(agent,str) or not 0<len(agent)<=64:raise ValueError('Invalid agent')
-                    if value.get('type') != 'request' or not isinstance(identity, str) or str(uuid.UUID(identity)) != identity.lower() or operation not in ('send', 'stop', 'inspect') or not isinstance(body, dict):
+                    if value.get('type') != 'request' or not isinstance(identity, str) or str(uuid.UUID(identity)) != identity.lower() or operation not in ('send', 'stop', 'inspect', 'resume') or not isinstance(body, dict):
                         raise ValueError('Unsupported request')
-                    if not access.owner:
-                        queue.put_nowait(json.dumps({'type':'rpcResult','id':identity,'status':403,'body':{'error':'studio_read_only','message':'This Studio invitation allows reading tasks and crew, not private history or agent controls.'}}))
+                    current_access = await viewer_access(request)
+                    if current_access != access or not access.allows(operation):
+                        queue.put_nowait(json.dumps({'type':'rpcResult','id':identity,'status':403,'body':{'error':'crew_access_required','message':'Crew access changed or this operation is not permitted. Reconnect before retrying.'}}))
                         continue
+                    if not access.owner:
+                        allowed = access.snapshot(state.snapshot()).get('agents', {})
+                        if agent not in allowed or not isinstance(value.get('expectedNativeSessionId'), str):
+                            queue.put_nowait(json.dumps({'type':'rpcResult','id':identity,'status':409,'body':{'error':'An exact current registered Crew session is required. Nothing was sent.'}}))
+                            continue
                     if operation == 'send':
                         content = body.get('content', {})
                         if (body.get('request_id') != identity or body.get('idempotency_token') != identity or body.get('work_approved') is not True or not isinstance(content, dict) or content.get('attachments') != [] or not isinstance(content.get('text'), str) or not content['text'].strip() or len(content['text']) > 12000):
                             raise ValueError('Invalid explicit message')
                     elif body:
-                        raise ValueError('Stop and inspect take no fields')
+                        raise ValueError('Stop, inspect and resume take no fields')
                     if operation == 'inspect' and state.data.get('agents',{}).get(agent,{}).get('capabilities',{}).get('inspect') is not True:
                         queue.put_nowait(json.dumps({'type':'rpcResult','id':identity,'status':501,'body':{'error':'This publisher does not support read-only inspection.'}}))
                         continue
                     expected=value.get('expectedNativeSessionId')
+                    if operation == 'resume':
+                        published=state.data.get('agents',{}).get(agent,{})
+                        members=state.data.get('roster',{}).get('crew',[])
+                        matches=[m for m in members if m.get('id')==agent and m.get('sessionId')==expected and m.get('lifecycle','active')=='active']
+                        if not isinstance(expected,str) or len(matches)!=1 or published.get('capabilities',{}).get('resume') is not True:
+                            queue.put_nowait(json.dumps({'type':'rpcResult','id':identity,'status':409,'body':{'error':'This member has no confirmed load control for the exact active session.'}}))
+                            continue
                     if expected is not None:
                         published=state.data.get('agents',{}).get(agent,{})
                         if not isinstance(expected,str) or published.get('nativeSessionId') != expected or published.get('capabilities',{}).get('boundInput') is not True:

@@ -3,29 +3,39 @@ from dataclasses import dataclass
 import hashlib
 import json
 import math
+import re
 
 PROJECT = 'fmvisual'
 READ_CAPABILITIES = frozenset({'tasks.read', 'crew.read'})
+DEVELOPER_CAPABILITIES = READ_CAPABILITIES | {'crew.chat', 'crew.control'}
 PROTOCOL_FIELDS = ('schema', 'source')
 TASK_TEXT_FIELDS = ('id', 'text', 'title', 'state', 'status', 'owner', 'next',
                     'done_when', 'acceptance', 'lane', 'workstream', 'priority',
                     'plan_status', 'queue_scope', 'delivery_stage')
 CREW_TEXT_FIELDS = ('id', 'name', 'role', 'roleId', 'roleFocus', 'focus', 'server',
-                    'sessionId', 'nativeSessionId', 'teamId', 'locationId', 'lifecycle')
+                    'sessionId', 'nativeSessionId', 'teamId', 'locationId', 'lifecycle', 'kind', 'subgroupId')
 DISPLAY_FIELDS = ('id', 'name', 'title', 'label', 'shortLabel', 'color', 'accent')
 
 
 def normalize_grant(value):
     if value is None:
         return None
-    if not isinstance(value, dict) or set(value) != {'project', 'capabilities'}:
+    if not isinstance(value, dict) or not {'project', 'capabilities'} <= set(value) or set(value) - {'project', 'capabilities', 'crew_member_id'}:
         raise ValueError('Studio access requires project and read capabilities')
     capabilities = value['capabilities']
     if (value['project'] != PROJECT or not isinstance(capabilities, list)
-            or any(not isinstance(c, str) or c not in READ_CAPABILITIES for c in capabilities)
+            or any(not isinstance(c, str) or c not in DEVELOPER_CAPABILITIES for c in capabilities)
             or len(set(capabilities)) != len(capabilities)):
         raise ValueError('Unknown Studio project or capability')
-    return {'project': PROJECT, 'capabilities': sorted(capabilities)}
+    if set(capabilities) & {'crew.chat', 'crew.control'} and not {'crew.read', 'crew.chat'} <= set(capabilities):
+        raise ValueError('Crew controls require Crew read and chat access')
+    result = {'project': PROJECT, 'capabilities': sorted(capabilities)}
+    if 'crew_member_id' in value:
+        member = value['crew_member_id']
+        if not isinstance(member, str) or not re.fullmatch(r'apple-[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}', member):
+            raise ValueError('Invalid registered human Crew identity')
+        result['crew_member_id'] = member
+    return result
 
 
 def stored_grant(value):
@@ -124,7 +134,7 @@ def project_work(work):
     return result
 
 
-def project_roster(roster, agents):
+def project_roster(roster, agents, developer=False):
     roster = roster if isinstance(roster, dict) else {}
     rows = roster.get('crew', [])
     if not isinstance(rows, list):
@@ -143,18 +153,23 @@ def project_roster(roster, agents):
         for key in ('relayOnline', 'sessionLoaded'):
             if isinstance(raw.get(key), bool):
                 agent[key] = raw[key]
-        agent['capabilities'] = {'boundInput': False, 'inspect': False}
+        agent['capabilities'] = {key: raw.get('capabilities', {}).get(key) is True and developer for key in ('boundInput', 'inspect', 'resume')}
+        if developer and isinstance(raw.get('history'), dict):
+            agent['history'] = raw['history']
+        if developer:
+            for key in ('working', 'activityKnown'):
+                if isinstance(raw.get(key), bool): agent[key] = raw[key]
         public_agents[row['id']] = agent
     result = texts(roster, ('schema', 'session'))
     result['crew'] = crew
-    for name in ('groups', 'locations'):
+    for name in ('groups', 'locations', 'subgroups'):
         values = roster.get(name)
         if isinstance(values, list):
             result[name] = []
             for row in values:
                 if not isinstance(row, dict):
                     continue
-                public = texts(row, DISPLAY_FIELDS)
+                public = texts(row, DISPLAY_FIELDS + ('parentGroupId',))
                 for key in ('order', 'displayOrder'):
                     if number(row.get(key)):
                         public[key] = row[key]
@@ -183,6 +198,9 @@ class StudioAccess:
             return None
         return cls(frozenset(grant['capabilities']))
 
+    def allows(self, operation):
+        return self.owner or (operation == 'send' and 'crew.chat' in self.capabilities) or (operation in ('stop', 'inspect', 'resume') and 'crew.control' in self.capabilities)
+
     @property
     def key(self):
         return PROJECT + ':' + ','.join(sorted(self.capabilities))
@@ -190,7 +208,7 @@ class StudioAccess:
     def metadata(self):
         return {'schema': 'fmvision.studio-access/1', 'project': PROJECT,
                 'capabilities': sorted(self.capabilities),
-                'role': 'owner' if self.owner else 'reader', 'ownerControls': self.owner}
+                'role': 'owner' if self.owner else ('developer' if 'crew.chat' in self.capabilities else 'reader'), 'ownerControls': self.owner}
 
     def snapshot(self, source):
         if self.owner:
@@ -202,7 +220,7 @@ class StudioAccess:
             if work is not None:
                 result['work'] = work
         if 'crew.read' in self.capabilities:
-            result['roster'], result['agents'] = project_roster(source.get('roster'), source.get('agents'))
+            result['roster'], result['agents'] = project_roster(source.get('roster'), source.get('agents'), 'crew.chat' in self.capabilities)
         return result
 
 

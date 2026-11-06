@@ -14,6 +14,7 @@ struct Dot: Identifiable, Hashable {
     var memberNames: [String] = []
     var humanOnly = false
     var peopleNames: [String] = []
+    var peopleIDs: [String] = []
 
     init(id: String, name: String, summary: String = "", isPaused: Bool = false,
          roomID: String? = nil, threadID: String? = nil) {
@@ -33,6 +34,7 @@ struct Dot: Identifiable, Hashable {
         memberNames = json["member_names"] as? [String] ?? []
         humanOnly = json["human_only"] as? Bool ?? false
         peopleNames = (json["people"] as? [[String: Any]] ?? []).compactMap { $0["name"] as? String }
+        peopleIDs = (json["people"] as? [[String: Any]] ?? []).compactMap { $0["id"] as? String }
     }
 
     private static func identifier(_ value: Any?) -> String? {

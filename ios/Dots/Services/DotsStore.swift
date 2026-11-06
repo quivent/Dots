@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 import Observation
 
 @MainActor @Observable
@@ -302,6 +303,29 @@ final class DotsStore {
     func requiresApproval(_ text: String, room: String) -> Bool {
         if dots.first(where: { $0.roomID == room })?.humanOnly == true { return false }
         return room.hasPrefix("hub-") || room.hasPrefix("mac-codex-") || WorkNotice.assess(text).requiresApproval
+    }
+
+    // Resolve only an owner-linked registered human; never route by display name.
+    func openCrewHuman(memberID: String) async throws -> Dot {
+        guard let account, account.relayURL == Self.hostedRelay else { throw APIError.localCodex("Connect the shared relay before opening a human Crew chat.", false) }
+        let attempt = generation
+        let result = try await api.request("GET", "/hosted/people", account: account)
+        guard !Task.isCancelled, generation == attempt else { throw CancellationError() }
+        let people = result["items"] as? [[String: Any]] ?? []
+        let matches = people.filter { $0["crew_member_id"] as? String == memberID && $0["is_self"] as? Bool != true }
+        guard matches.count == 1, let target = matches.first, let targetID = target["id"] as? String,
+              let ownID = people.first(where: { $0["is_self"] as? Bool == true })?["id"] as? String else {
+            throw APIError.localCodex(matches.count > 1 ? "This member has multiple joined devices. Choose their conversation in Dots." : "This person has not joined yet. The owner can create a named developer invitation in Account → Invite a phone.", false)
+        }
+        let ids = Set([ownID, targetID])
+        await refreshHostedRooms()
+        guard !Task.isCancelled, generation == attempt else { throw CancellationError() }
+        if let existing = dots.first(where: { $0.humanOnly && Set($0.peopleIDs) == ids }) { return existing }
+        // Stable participant-derived UUID makes uncertain/repeated opens idempotent.
+        var bytes = Array(SHA256.hash(data: Data(("fmvision.human-room.v1|" + ids.sorted().joined(separator: "|")).utf8)).prefix(16))
+        bytes[6] = (bytes[6] & 0x0f) | 0x50; bytes[8] = (bytes[8] & 0x3f) | 0x80
+        let uuid = UUID(uuid: (bytes[0],bytes[1],bytes[2],bytes[3],bytes[4],bytes[5],bytes[6],bytes[7],bytes[8],bytes[9],bytes[10],bytes[11],bytes[12],bytes[13],bytes[14],bytes[15]))
+        return try await createHostedRoom(name: "Crew conversation", members: [], requestID: uuid.uuidString.lowercased(), people: [targetID])
     }
 
     func createHostedRoom(name: String, members: [String], requestID: String, people: [String]? = nil) async throws -> Dot {
